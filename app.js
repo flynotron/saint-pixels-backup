@@ -36,13 +36,15 @@ const BOARD_HEIGHT = 1080;
 const DEFAULT_PALETTE = [
   { id: 0, label: 'Black', color: '#000000' },
   { id: 1, label: 'White', color: '#ffffff' },
-  { id: 2, label: 'Orange', color: '#f97316' },
-  { id: 3, label: 'Yellow', color: '#fde047' },
-  { id: 4, label: 'Green', color: '#22c55e' },
-  { id: 5, label: 'Blue', color: '#38bdf8' },
-  { id: 6, label: 'Indigo', color: '#818cf8' },
-  { id: 7, label: 'Pink', color: '#ec4899' },
-  { id: 8, label: 'Light Green', color: '#a3e635' }
+  { id: 2, label: 'Red', color: '#ef4444' },
+  { id: 3, label: 'Orange', color: '#fb923c' },
+  { id: 4, label: 'Yellow', color: '#facc15' },
+  { id: 5, label: 'Green', color: '#22c55e' },
+  { id: 6, label: 'Cyan', color: '#06b6d4' },
+  { id: 7, label: 'Blue', color: '#3b82f6' },
+  { id: 8, label: 'Indigo', color: '#6366f1' },
+  { id: 9, label: 'Violet', color: '#8b5cf6' },
+  { id: 10, label: 'Pink', color: '#ec4899' }
 ];
 const paletteColors = [];
 const CUSTOM_PALETTE_KEY = 'sp_customPalette';
@@ -694,10 +696,8 @@ function exportPng() {
 
 function renderPalette() {
   paletteEl.innerHTML = '';
-  const colors = [
-    ...paletteColors.map(asPaletteEntry),
-    ...customPalette.map(asPaletteEntry)
-  ];
+  const sourcePalette = paletteColors.length > 0 ? paletteColors : DEFAULT_PALETTE;
+  const colors = sourcePalette.map(asPaletteEntry);
 
   colors.forEach(entry => {
     const button = document.createElement('button');
@@ -710,6 +710,12 @@ function renderPalette() {
     button.addEventListener('click', () => {
       setColor(entry.color);
       renderPalette();
+    });
+
+    // Double-click to open variation picker (two darker on top, two lighter on bottom)
+    button.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      showVariationPicker(entry, button);
     });
 
     if (entry.id == null) {
@@ -735,18 +741,152 @@ async function initPalette() {
   renderPalette();
 }
 
-function addColorToPalette() {
-  const newColor = normalizeHexColor(colorInput.value);
-  const duplicate = customPalette.some(c => normalizeHexColor(String(c)) === newColor);
-  if (!duplicate) {
-    customPalette.push(newColor);
-    if (customPalette.length > 18) {
-      customPalette.shift();
-    }
-    saveCustomPalette(customPalette);
-    renderPalette();
-    broadcastEvent({ type: 'palette', palette: customPalette });
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(x => {
+    const hex = x.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+function generateColorVariations(baseColor) {
+  const [r, g, b] = hexToRgba(baseColor);
+  
+  // Generate 2 lighter and 2 darker versions
+  const variations = [];
+  
+  // Lighter variations (increase towards white)
+  for (let i = 1; i <= 2; i++) {
+    const factor = i * 0.25;
+    const lr = Math.round(r + (255 - r) * factor);
+    const lg = Math.round(g + (255 - g) * factor);
+    const lb = Math.round(b + (255 - b) * factor);
+    variations.push(rgbToHex(lr, lg, lb));
   }
+  
+  // Darker variations (decrease towards black)
+  for (let i = 1; i <= 2; i++) {
+    const factor = i * 0.25;
+    const dr = Math.round(r * (1 - factor));
+    const dg = Math.round(g * (1 - factor));
+    const db = Math.round(b * (1 - factor));
+    variations.push(rgbToHex(dr, dg, db));
+  }
+  
+  return variations;
+}
+
+function showVariationPicker(entry, anchorEl) {
+  // Remove any existing picker before opening a new one
+  const existing = document.querySelector('.variation-picker');
+  if (existing) existing.remove();
+
+  const baseColor = entry.color;
+  const [lighter1, lighter2, darker1, darker2] = generateColorVariations(baseColor);
+  const normBase = normalizeHexColor(baseColor);
+
+  const picker = document.createElement('div');
+  picker.className = 'variation-picker';
+  picker.style.position = 'fixed';
+  picker.style.zIndex = 1000;
+  picker.style.display = 'grid';
+  picker.style.gridTemplateColumns = '40px 56px 40px';
+  picker.style.gridTemplateRows = '40px 56px 40px';
+  picker.style.gap = '6px';
+  picker.style.padding = '8px';
+  picker.style.borderRadius = '14px';
+  picker.style.boxShadow = '0 8px 24px rgba(0,0,0,0.45)';
+  picker.style.background = 'var(--surface)';
+
+  const addVariantButton = (hex, onClick) => {
+    const btn = document.createElement('button');
+    btn.className = 'variation-swatch';
+    btn.style.width = '40px';
+    btn.style.height = '40px';
+    btn.style.border = '1px solid rgba(255,255,255,0.08)';
+    btn.style.borderRadius = '10px';
+    btn.style.background = normalizeHexColor(hex);
+    btn.title = normalizeHexColor(hex).toUpperCase();
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('dblclick', (ev) => {
+      ev.stopPropagation();
+      showVariationPicker({ ...entry, color: normalizeHexColor(hex) }, anchorEl);
+    });
+    return btn;
+  };
+
+  // Top-left darker
+  picker.appendChild(addVariantButton(darker1, () => applyPickerColor(darker1, entry, anchorEl, picker)));
+  // Top-center spacer
+  picker.appendChild(document.createElement('div'));
+  // Top-right darker
+  picker.appendChild(addVariantButton(darker2, () => applyPickerColor(darker2, entry, anchorEl, picker)));
+
+  // Middle-left spacer
+  picker.appendChild(document.createElement('div'));
+  // Center original color
+  const center = document.createElement('button');
+  center.className = 'variation-swatch';
+  center.style.width = '56px';
+  center.style.height = '56px';
+  center.style.border = '2px solid rgba(255,255,255,0.28)';
+  center.style.borderRadius = '14px';
+  center.style.background = normBase;
+  center.title = normBase.toUpperCase();
+  center.addEventListener('click', () => {
+    setColor(normBase);
+    picker.remove();
+  });
+  center.addEventListener('dblclick', (ev) => {
+    ev.stopPropagation();
+    showVariationPicker(entry, anchorEl);
+  });
+  picker.appendChild(center);
+  // Middle-right spacer
+  picker.appendChild(document.createElement('div'));
+
+  // Bottom-left lighter
+  picker.appendChild(addVariantButton(lighter1, () => applyPickerColor(lighter1, entry, anchorEl, picker)));
+  // Bottom-center spacer
+  picker.appendChild(document.createElement('div'));
+  // Bottom-right lighter
+  picker.appendChild(addVariantButton(lighter2, () => applyPickerColor(lighter2, entry, anchorEl, picker)));
+
+  document.body.appendChild(picker);
+
+  // Position the picker above the clicked swatch, centered horizontally.
+  const rect = anchorEl.getBoundingClientRect();
+  const pickerRect = picker.getBoundingClientRect();
+  picker.style.left = `${Math.max(8, rect.left + rect.width / 2 - pickerRect.width / 2)}px`;
+  picker.style.top = `${Math.max(8, rect.top - pickerRect.height - 8)}px`;
+
+  const onDocClick = (ev) => {
+    if (!picker.contains(ev.target) && ev.target !== anchorEl) {
+      picker.remove();
+      document.removeEventListener('click', onDocClick);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', onDocClick), 0);
+}
+
+function applyPickerColor(newColor, entry, anchorEl, picker) {
+  const normalized = normalizeHexColor(newColor);
+  entry.color = normalized;
+  entry.label = normalized;
+  const paletteSource = paletteColors.length > 0 ? paletteColors : DEFAULT_PALETTE;
+  const paletteEntry = paletteSource.find(pc => normalizeHexColor(String(pc.color)) === normalizeHexColor(entry.color) || pc.id === entry.id);
+  if (paletteEntry) {
+    paletteEntry.color = normalized;
+    paletteEntry.label = normalized;
+  }
+  anchorEl.style.background = normalized;
+  anchorEl.dataset.color = normalized;
+  anchorEl.title = `${normalized.toUpperCase()}`;
+  setColor(normalized);
+  picker.remove();
+}
+
+function addColorToPalette() {
+  // Disabled: new colors can only be created by double-clicking existing colors
 }
 
 function setTool(newTool) {
@@ -770,14 +910,16 @@ function applyColorSwatchStyles(hex) {
 }
 
 function setColor(newColor) {
-  color = newColor;
-  colorInput.value = newColor;
-  currentColorLabel.textContent = newColor.toUpperCase();
-  applyColorSwatchStyles(newColor);
+  const norm = normalizeHexColor(newColor);
+  color = norm;
+  colorInput.value = norm;
+  currentColorLabel.textContent = norm.toUpperCase();
+  applyColorSwatchStyles(norm);
   // update palette selection visuals
   renderPalette();
 }
 
+// cleanup: keep the UI consistent after any color change or palette update
 function syncUI() {
   renderPalette();
   setColor(color);
@@ -885,10 +1027,6 @@ function handlePan(event) {
 function handlePanEnd() {
   isPanning = false;
   dragStart = null;
-}
-
-function rgbToHex(r, g, b) {
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
 
 function resizeViewport() {

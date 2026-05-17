@@ -431,9 +431,9 @@ button.compact {
 
 .color-picker input {
   width: 100%;
-  height: 44px;
-  border-radius: 16px;
-  border: none;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,.08);
   cursor: pointer;
 }
 
@@ -540,4 +540,25 @@ kbd {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+#add-color {
+  display: none;
+}
+
+.variation-picker {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.variation-picker .variation-swatch {
+  padding: 0;
+  margin: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.variation-picker div {
+  display: inline-block;
 }

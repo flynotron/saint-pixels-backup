@@ -12,8 +12,10 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
 function hashPassword(password, username) {
-  const salt = crypto.createHash('sha256').update(username).digest('hex');
-  return crypto.createHmac('sha512', salt).update(password).digest('hex');
+  const user = typeof username === 'string' ? username : '';
+  const pwd = typeof password === 'string' ? password : '';
+  const salt = crypto.createHash('sha256').update(user).digest('hex');
+  return crypto.createHmac('sha512', salt).update(pwd).digest('hex');
 }
 
 function createSession(username) {
@@ -37,7 +39,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    ip TEXT UNIQUE NOT NULL,
+    ip TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
 
@@ -48,6 +50,8 @@ db.exec(`
   );
 `);
 
+ 
+
 // Populate default palette if empty
 try {
   const countStmt = db.prepare('SELECT COUNT(*) AS count FROM palette');
@@ -57,13 +61,15 @@ try {
     const defaultPalette = [
       ['Black', '000000'],
       ['White', 'ffffff'],
-      ['Orange', 'f97316'],
-      ['Yellow', 'fde047'],
+      ['Red', 'ef4444'],
+      ['Orange', 'fb923c'],
+      ['Yellow', 'facc15'],
       ['Green', '22c55e'],
-      ['Blue', '38bdf8'],
-      ['Indigo', '818cf8'],
-      ['Pink', 'ec4899'],
-      ['Light Green', 'a3e635']
+      ['Cyan', '06b6d4'],
+      ['Blue', '3b82f6'],
+      ['Indigo', '6366f1'],
+      ['Violet', '8b5cf6'],
+      ['Pink', 'ec4899']
     ];
     const insertMany = db.transaction((colors) => {
       colors.forEach(([label, color]) => insertStmt.run(label, color));
@@ -91,17 +97,12 @@ app.post('/api/register', (req, res) => {
   }
 
   try {
-    const checkIpStmt = db.prepare('SELECT id FROM accounts WHERE ip = ?');
-    if (checkIpStmt.get(ip)) {
-      return res.status(409).json({ error: 'One account per IP is allowed.' });
-    }
-
     const checkUserStmt = db.prepare('SELECT id FROM accounts WHERE username = ?');
     if (checkUserStmt.get(username)) {
       return res.status(409).json({ error: 'Username already taken.' });
     }
 
-    const hashed = hashPassword(password);
+    const hashed = hashPassword(password, username);
     const createdAt = Date.now();
     const insertStmt = db.prepare('INSERT INTO accounts (username, password, ip, created_at) VALUES (?, ?, ?, ?)');
     insertStmt.run(username, hashed, ip, createdAt);
@@ -125,7 +126,7 @@ app.post('/api/login', (req, res) => {
     if (!row) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
-    if (row.password !== hashPassword(password)) {
+    if (row.password !== hashPassword(password, username)) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
     const token = createSession(username);
