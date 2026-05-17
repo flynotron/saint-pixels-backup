@@ -2,10 +2,10 @@
 
 ## Quick Start with Docker Compose
 
-No need to install Node.js or npm locally. Just install Docker and Docker Compose:
+No need to install Node.js or npm locally. Just install [Docker](https://docs.docker.com/get-docker/) (which includes Docker Compose):
 
 ```bash
-docker-compose up
+sudo docker compose up --build
 ```
 
 The app will be available at `http://localhost:3000`
@@ -15,21 +15,19 @@ The app will be available at `http://localhost:3000`
 You can override the port by setting `PORT`:
 
 ```bash
-PORT=8080 docker-compose up
+PORT=8080 sudo docker compose up --build
 ```
 
 ## Without Docker
 
-If you prefer to run locally:
+If you prefer to run locally (requires Node.js 20+):
 
 ```bash
 npm install
-npm start
-# or
 node server.js
 ```
 
-The server runs on a random available port (printed to console) or the port specified in `PORT` env var.
+The server prints the URL to the console on startup.
 
 ## API Endpoints
 
@@ -41,4 +39,4 @@ The server runs on a random available port (printed to console) or the port spec
 
 ## Database
 
-SQLite database is automatically initialized with default colors on first run.
+SQLite database is automatically initialized with default colors on first run. The `database.sqlite` file is excluded from the repository and created locally on first run.
