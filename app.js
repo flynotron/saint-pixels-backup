@@ -327,12 +327,15 @@ function drawGrid() {
   overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
   if (!gridEnabled) return;
 
-  const startX = Math.floor(Math.max(0, -offsetX) / scale);
-  const startY = Math.floor(Math.max(0, -offsetY) / scale);
-  const endX = Math.ceil(Math.min(BOARD_WIDTH, (overlay.width - offsetX) / scale));
-  const endY = Math.ceil(Math.min(BOARD_HEIGHT, (overlay.height - offsetY) / scale));
+  // Use the same rounded offsets as redraw() so grid aligns perfectly with pixels
+  const ox = Math.round(offsetX);
+  const oy = Math.round(offsetY);
 
-  // Only draw grid lines when zoomed in enough to be useful
+  const startX = Math.floor(Math.max(0, -ox) / scale);
+  const startY = Math.floor(Math.max(0, -oy) / scale);
+  const endX = Math.ceil(Math.min(BOARD_WIDTH, (overlay.width - ox) / scale));
+  const endY = Math.ceil(Math.min(BOARD_HEIGHT, (overlay.height - oy) / scale));
+
   if (scale >= 3) {
     overlayCtx.save();
     overlayCtx.strokeStyle = 'rgba(0,0,0,0.18)';
@@ -340,18 +343,18 @@ function drawGrid() {
     overlayCtx.setLineDash([2, 2]);
 
     for (let gx = startX; gx <= endX; gx++) {
-      const px = Math.floor(gx * scale + offsetX) + 0.5;
+      const px = Math.floor(gx * scale + ox) + 0.5;
       overlayCtx.beginPath();
-      overlayCtx.moveTo(px, Math.floor(startY * scale + offsetY));
-      overlayCtx.lineTo(px, Math.floor(endY * scale + offsetY));
+      overlayCtx.moveTo(px, Math.floor(startY * scale + oy));
+      overlayCtx.lineTo(px, Math.floor(endY * scale + oy));
       overlayCtx.stroke();
     }
 
     for (let gy = startY; gy <= endY; gy++) {
-      const py = Math.floor(gy * scale + offsetY) + 0.5;
+      const py = Math.floor(gy * scale + oy) + 0.5;
       overlayCtx.beginPath();
-      overlayCtx.moveTo(Math.floor(startX * scale + offsetX), py);
-      overlayCtx.lineTo(Math.floor(endX * scale + offsetX), py);
+      overlayCtx.moveTo(Math.floor(startX * scale + ox), py);
+      overlayCtx.lineTo(Math.floor(endX * scale + ox), py);
       overlayCtx.stroke();
     }
 
@@ -362,8 +365,8 @@ function drawGrid() {
   overlayCtx.save();
   overlayCtx.strokeStyle = 'rgba(0,0,0,0.55)';
   overlayCtx.setLineDash([]);
-  const bx = Math.round(offsetX + 0.5);
-  const by = Math.round(offsetY + 0.5);
+  const bx = ox + 0.5;
+  const by = oy + 0.5;
   const bw = Math.round(BOARD_WIDTH * scale - 1);
   const bh = Math.round(BOARD_HEIGHT * scale - 1);
   overlayCtx.strokeRect(bx, by, bw, bh);
@@ -494,8 +497,10 @@ function hexToRgba(hex) {
 function drawCursor() {
   if (!cursorPosition) return;
   const { x, y } = cursorPosition;
-  const px = Math.round(x * scale + offsetX) + 0.5;
-  const py = Math.round(y * scale + offsetY) + 0.5;
+  const ox = Math.round(offsetX);
+  const oy = Math.round(offsetY);
+  const px = Math.floor(x * scale + ox);
+  const py = Math.floor(y * scale + oy);
   const size = Math.max(1, Math.round(pixelSize * scale));
 
   // semi-transparent preview fill matching current color
