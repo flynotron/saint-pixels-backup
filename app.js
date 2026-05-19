@@ -428,8 +428,9 @@ function clamp(value, min, max) {
 }
 
 function clampOffsets() {
-  const scaledWidth = CANVAS_WIDTH * scale;
-  const scaledHeight = CANVAS_HEIGHT * scale;
+  // Clamp against BOARD dimensions (1920×1080), not the larger buffer canvas.
+  const scaledWidth = BOARD_WIDTH * scale;
+  const scaledHeight = BOARD_HEIGHT * scale;
 
   if (canvas.width >= scaledWidth) {
     offsetX = Math.round((canvas.width - scaledWidth) / 2);
@@ -1050,13 +1051,13 @@ function handlePanStart(event) {
 function handlePan(event) {
   if (!isPanning || !dragStart) return;
 
-  // Compute the proposed offsets based on pointer movement
   const proposedX = event.clientX - dragStart.x;
   const proposedY = event.clientY - dragStart.y;
 
-  // Determine whether the proposed offsets would be clamped by the viewport rules
-  const scaledWidth = CANVAS_WIDTH * scale;
-  const scaledHeight = CANVAS_HEIGHT * scale;
+  // Use BOARD dimensions (not buffer CANVAS dimensions) for clamping —
+  // the board is 1920×1080, the buffer canvas is 2000×2000.
+  const scaledWidth = BOARD_WIDTH * scale;
+  const scaledHeight = BOARD_HEIGHT * scale;
 
   let allowedX;
   if (canvas.width >= scaledWidth) {
@@ -1072,16 +1073,14 @@ function handlePan(event) {
     allowedY = clamp(proposedY, canvas.height - scaledHeight, 0);
   }
 
-  // Apply the allowed (possibly clamped) offsets
   offsetX = allowedX;
   offsetY = allowedY;
   redraw();
 
-  // If the pointer attempted to move beyond the allowed bounds (was clamped),
-  // end panning so the grabbing hand disappears and we don't later "snap" the view.
-  if (proposedX !== allowedX || proposedY !== allowedY) {
-    handlePanEnd();
-  }
+  // Slide dragStart anchor when clamped so panning resumes
+  // instantly when moving back inward — no freeze, no snap.
+  if (proposedX !== allowedX) dragStart.x = event.clientX - allowedX;
+  if (proposedY !== allowedY) dragStart.y = event.clientY - allowedY;
 }
 
 function handlePanEnd() {
@@ -1148,10 +1147,10 @@ document.addEventListener('mouseup', event => {
   if (isPanning) handlePanEnd();
 });
 canvas.addEventListener('mouseleave', () => {
-  isMouseDown = false;
-  disarmKeyboardCursor();
-  cursorPosition = null;
-  redraw();
+  //isMouseDown = false;
+  //disarmKeyboardCursor();
+  //cursorPosition = null;
+  //redraw();
 });
 canvas.addEventListener('wheel', handleWheel, { passive: false });
 
