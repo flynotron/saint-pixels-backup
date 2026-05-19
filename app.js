@@ -1431,48 +1431,72 @@ window.addEventListener('load', async () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 });
 
-document.getElementById('spawn-btn').addEventListener('click', () => {
-  const spawnXInput = document.getElementById('spawn-x');
-  const spawnYInput = document.getElementById('spawn-y');
-  const spawnZoomInput = document.getElementById('spawn-zoom');
+(function () {
+  const SPAWN_COOLDOWN_MS = 7000;
+  let lastSpawnAt = 0;
+  let spawnCooldownTimer = null;
 
-  const targetX = parseInt(spawnXInput.value, 10);
-  const targetY = parseInt(spawnYInput.value, 10);
-  let targetZoomPercent = parseInt(spawnZoomInput.value, 10);
+  const spawnBtn = document.getElementById('spawn-btn');
 
-  // Fallback constraints validation
-  if (isNaN(targetX) || isNaN(targetY)) {
-    alert('Please enter valid X and Y coordinates.');
-    return;
-  }
-  if (isNaN(targetZoomPercent) || targetZoomPercent <= 0) {
-    targetZoomPercent = 4500; // Default fallback
-  }
-
-  // Convert percentage value to fractional multiplier scale
-  scale = targetZoomPercent / 100;
-  
-  // Enforce range clamping limits established by system variables
-  scale = clamp(scale, 0.05, MAX_ZOOM_SCALE);
-
-  // Grab active boundaries to establish coordinate offset centering
-  const rect = viewport.getBoundingClientRect();
-  const halfWidth = rect.width / 2;
-  const halfHeight = rect.height / 2;
-
-  // Calculate top-left canvas shifts to align target centered to screen viewport
-  offsetX = halfWidth - (targetX * scale);
-  offsetY = halfHeight - (targetY * scale);
-
-  // Sync state back to top toolbar handles 
-  zoomInput.value = Math.round(scale * 100);
-  if (typeof zoomLevelLabel !== 'undefined' && zoomLevelLabel) {
-    zoomLevelLabel.textContent = `${Math.round(scale * 100)}%`;
+  function updateSpawnBtn(remaining) {
+    if (remaining > 0) {
+      spawnBtn.disabled = true;
+      spawnBtn.textContent = `Go (${Math.ceil(remaining / 1000)}s)`;
+    } else {
+      spawnBtn.disabled = false;
+      spawnBtn.textContent = 'Go';
+    }
   }
 
-  clampOffsets();
-  redraw();
-});
+  spawnBtn.addEventListener('click', () => {
+    const now = Date.now();
+    const remaining = SPAWN_COOLDOWN_MS - (now - lastSpawnAt);
+    if (remaining > 0) return;
+
+    const spawnXInput = document.getElementById('spawn-x');
+    const spawnYInput = document.getElementById('spawn-y');
+    const spawnZoomInput = document.getElementById('spawn-zoom');
+
+    const targetX = parseInt(spawnXInput.value, 10);
+    const targetY = parseInt(spawnYInput.value, 10);
+    let targetZoomPercent = parseInt(spawnZoomInput.value, 10);
+
+    if (isNaN(targetX) || isNaN(targetY)) {
+      alert('Please enter valid X and Y coordinates.');
+      return;
+    }
+    if (isNaN(targetZoomPercent) || targetZoomPercent <= 0) {
+      targetZoomPercent = 4500;
+    }
+
+    scale = clamp(targetZoomPercent / 100, 0.05, MAX_ZOOM_SCALE);
+
+    const rect = viewport.getBoundingClientRect();
+    offsetX = rect.width / 2 - targetX * scale;
+    offsetY = rect.height / 2 - targetY * scale;
+
+    zoomInput.value = Math.round(scale * 100);
+    if (typeof zoomLevelLabel !== 'undefined' && zoomLevelLabel) {
+      zoomLevelLabel.textContent = `${Math.round(scale * 100)}%`;
+    }
+
+    clampOffsets();
+    redraw();
+
+    // Start cooldown
+    lastSpawnAt = Date.now();
+    if (spawnCooldownTimer) clearInterval(spawnCooldownTimer);
+    spawnCooldownTimer = setInterval(() => {
+      const rem = SPAWN_COOLDOWN_MS - (Date.now() - lastSpawnAt);
+      updateSpawnBtn(rem);
+      if (rem <= 0) {
+        clearInterval(spawnCooldownTimer);
+        spawnCooldownTimer = null;
+      }
+    }, 200);
+    updateSpawnBtn(SPAWN_COOLDOWN_MS);
+  });
+})();
 
 function moveColorFocus(dx, dy) {
   const sourcePalette = paletteColors.length > 0 ? paletteColors : DEFAULT_PALETTE;
