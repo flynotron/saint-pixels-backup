@@ -1293,7 +1293,7 @@ zoomInput.addEventListener('input', event => {
   // NEW: Instantly recalculate the cursor position based on the new zoom scale
   const newCoords = getCanvasCoords(event.clientX, event.clientY);
   cursorPosition = { x: newCoords.x, y: newCoords.y };
-  
+
   redraw();
 });
 
@@ -1558,3 +1558,36 @@ if (fullscreenBtn && viewportTarget) {
     }
   });
 }
+
+let lastTouchDistance = 0;
+
+viewport.addEventListener("touchmove", (e) => {
+
+  if (e.touches.length === 2) {
+
+    const dx =
+      e.touches[0].clientX - e.touches[1].clientX;
+
+    const dy =
+      e.touches[0].clientY - e.touches[1].clientY;
+
+    const distance = Math.hypot(dx, dy);
+
+    if (lastTouchDistance) {
+
+      const delta = distance - lastTouchDistance;
+
+      zoom += delta * 0.01;
+
+      updateZoom();
+    }
+
+    lastTouchDistance = distance;
+
+  }
+
+}, { passive: false });
+
+viewport.addEventListener("touchend", () => {
+  lastTouchDistance = 0;
+});

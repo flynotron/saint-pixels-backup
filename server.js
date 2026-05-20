@@ -12,6 +12,16 @@ const sessions = new Map();
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
+const now = Date.now();
+
+if (now - user.lastPixelTime < 5000) {
+  return res.status(429).json({
+    error: "Cooldown active"
+  });
+}
+
+user.lastPixelTime = now;
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
