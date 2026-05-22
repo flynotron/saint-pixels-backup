@@ -20,7 +20,7 @@ PORT=8080 sudo docker compose up --build
 
 ## Without Docker
 
-If you prefer to run locally (requires Node.js 20+):
+If you prefer to run locally (requires Node.js 24+):
 
 ```bash
 npm install

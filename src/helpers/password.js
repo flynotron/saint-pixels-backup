@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+const crypto = require('crypto');
 
 /**
  * Compute the hash of a password for a given username
@@ -6,10 +6,11 @@ import crypto from 'crypto';
  * @param {string} username 
  * @returns {string}
  */
-export function hashPassword(password, username) {
+function hashPassword(password, username) {
   const user = typeof username === 'string' ? username : '';
   const pwd = typeof password === 'string' ? password : '';
-  // Use the username as the salt source to ensure unique hashes for identical passwords
   const salt = crypto.createHash('sha256').update(user).digest('hex');
   return crypto.createHmac('sha512', salt).update(pwd).digest('hex');
 }
+
+module.exports = { hashPassword };

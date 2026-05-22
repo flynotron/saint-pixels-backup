@@ -1,7 +1,37 @@
+// ═══════════════════════════════════════════════════════════════════
+// Alpine.js component — manages reactive UI state shown in the header
+// and auth overlay. The canvas engine below dispatches `sp-state-change`
+// events; Alpine picks them up via @sp-state-change.window on <body>.
+// ═══════════════════════════════════════════════════════════════════
+document.addEventListener('alpine:init', () => {
+  Alpine.data('spApp', () => ({
+    currentUser: null,
+    currentTool: 'Brush',
+    currentColor: '#000000',
+    zoomLevel: 100,
+    liveCount: 1,
+
+    syncFromEngine(detail) {
+      if (detail.currentUser  !== undefined) this.currentUser  = detail.currentUser;
+      if (detail.currentTool  !== undefined) this.currentTool  = detail.currentTool;
+      if (detail.currentColor !== undefined) this.currentColor = detail.currentColor;
+      if (detail.zoomLevel    !== undefined) this.zoomLevel    = detail.zoomLevel;
+      if (detail.liveCount    !== undefined) this.liveCount    = detail.liveCount;
+    }
+  }));
+});
+
+// Helper: send reactive state updates to Alpine without touching the DOM
+function dispatchStateChange(detail) {
+  window.dispatchEvent(new CustomEvent('sp-state-change', { detail }));
+}
+
 const canvas = document.getElementById('canvas');
 const overlay = document.getElementById('overlay');
+const gridCanvas = document.getElementById('grid');
 const ctx = canvas.getContext('2d');
 const overlayCtx = overlay.getContext('2d');
+const gridCtx = gridCanvas.getContext('2d');
 const viewport = document.getElementById('viewport');
 const zoomInput = document.getElementById('zoom');
 const toggleGridBtn = document.getElementById('toggle-grid');
@@ -11,9 +41,6 @@ const paletteEl = document.getElementById('palette');
 const colorInput = document.getElementById('color');
 const toolButtons = document.querySelectorAll('[data-tool]');
 const coordLabel = document.getElementById('coord');
-const currentToolLabel = document.getElementById('current-tool');
-const currentColorLabel = document.getElementById('current-color');
-const zoomLevelLabel = document.getElementById('zoom-level');
 const authOverlay = document.getElementById('authOverlay');
 const authUsername = document.getElementById('authUsername');
 const authPassword = document.getElementById('authPassword');
@@ -21,12 +48,9 @@ const authLoginButton = document.getElementById('authLogin');
 const authRegisterButton = document.getElementById('authRegister');
 const authMessage = document.getElementById('authMessage');
 const addColorButton = document.getElementById('add-color');
-const currentUserLabel = document.getElementById('current-user');
 const cooldownBar = document.getElementById('cooldownBar');
 const cooldownFill = document.getElementById('cooldownFill');
 const cooldownBarLabel = document.getElementById('cooldownBarLabel');
-const liveCountLabel = document.getElementById('live-count');
-const logoutButton = document.getElementById('logoutButton');
 
 const CANVAS_WIDTH = 2000;
 const CANVAS_HEIGHT = 2000;
@@ -74,6 +98,11 @@ const bufferCtx = bufferCanvas.getContext('2d');
 let scale = 1;
 let offsetX = 0;
 let offsetY = 0;
+// Track the last values used to draw the grid so we only redraw it when
+// the viewport actually changes (prevents the flash on every cursor move).
+let lastGridScale = null;
+let lastGridOffsetX = null;
+let lastGridOffsetY = null;
 let isPanning = false;
 let dragStart = null;
 let gridEnabled = true;
@@ -190,9 +219,7 @@ async function updateAuthState() {
   const token = getStoredToken();
   if (!token) {
     currentUser = null;
-    currentUserLabel.textContent = 'Guest';
-    authOverlay.classList.remove('hidden');
-    authOverlay.style.display = 'grid';
+    dispatchStateChange({ currentUser: null });
     authUsername.focus();
     return;
   }
@@ -205,26 +232,20 @@ async function updateAuthState() {
     if (!response.ok) {
       clearToken();
       currentUser = null;
-      currentUserLabel.textContent = 'Guest';
-      authOverlay.classList.remove('hidden');
-      document.body.classList.add('auth-open');
+      dispatchStateChange({ currentUser: null });
       authUsername.focus();
       return;
     }
 
     const data = await response.json();
     currentUser = data.username;
-    currentUserLabel.textContent = data.username;
-    authOverlay.classList.add('hidden');
-    authOverlay.style.display = 'none';
+    dispatchStateChange({ currentUser: data.username });
     document.body.classList.remove('auth-open');
     authMessage.textContent = '';
     updateCooldownLabel();
   } catch (error) {
     currentUser = null;
-    currentUserLabel.textContent = 'Guest';
-    authOverlay.classList.remove('hidden');
-    authOverlay.style.display = 'grid';
+    dispatchStateChange({ currentUser: null });
     document.body.classList.add('auth-open');
     authUsername.focus();
   }
@@ -237,9 +258,7 @@ function showAuthMessage(message, isError = true) {
 
 function setCurrentUser(username) {
   currentUser = username;
-  currentUserLabel.textContent = username;
-  authOverlay.classList.add('hidden');
-  authOverlay.style.display = 'none';
+  dispatchStateChange({ currentUser: username });
   showAuthMessage(`Logged in as ${username}`, false);
   updateCooldownLabel();
 }
@@ -255,9 +274,7 @@ async function handleLogout() {
   }
   clearToken();
   currentUser = null;
-  currentUserLabel.textContent = 'Guest';
-  authOverlay.classList.remove('hidden');
-  authOverlay.style.display = 'grid';
+  dispatchStateChange({ currentUser: null });
   showAuthMessage('Logged out', false);
   updateCooldownLabel();
 }
@@ -349,71 +366,88 @@ function canPlacePixel() {
   return !!currentUser && Date.now() - lastPlaceAt >= COOLDOWN_MS;
 }
 
+// ─── Grid: corner dots drawn in viewport space ───────────────────────────────
+// One dot at every board-pixel corner visible on screen. Canvas is always
+// viewport-sized; offsetX/Y baked in directly — no CSS translate tricks.
+// ─────────────────────────────────────────────────────────────────────────────
 function drawGrid() {
   const dpr = window.devicePixelRatio || 1;
-  overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
-  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+  gridCanvas.width  = canvas.width;
+  gridCanvas.height = canvas.height;
+
+  gridCtx.setTransform(1, 0, 0, 1, 0, 0);
+  gridCtx.clearRect(0, 0, gridCanvas.width, gridCanvas.height);
 
   if (!gridEnabled || scale < 4) return;
 
-  // Render in pure CSS space to avoid matrix fraction blurring
-  overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  overlayCtx.beginPath();
-  overlayCtx.lineWidth = 1;
-  overlayCtx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+  const vpW = canvas.width  / dpr;
+  const vpH = canvas.height / dpr;
 
-  const ox = Math.round(offsetX);
-  const oy = Math.round(offsetY);
+  gridCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // CSS-pixel viewport dimensions
-  const vpW = overlay.width / dpr;
-  const vpH = overlay.height / dpr;
+  const boardScreenR = offsetX + Math.round(BOARD_WIDTH  * scale);
+  const boardScreenB = offsetY + Math.round(BOARD_HEIGHT * scale);
 
-  // Board extent in CSS pixels
-  const boardRight  = ox + Math.round(BOARD_WIDTH  * scale);
-  const boardBottom = oy + Math.round(BOARD_HEIGHT * scale);
+  const clipL = Math.max(0, offsetX);
+  const clipT = Math.max(0, offsetY);
+  const clipR = Math.min(vpW, boardScreenR);
+  const clipB = Math.min(vpH, boardScreenB);
+  if (clipR <= clipL || clipB <= clipT) return;
 
-  // Clamp drawing area to the board bounds
-  const drawLeft   = Math.max(0, ox);
-  const drawTop    = Math.max(0, oy);
-  const drawRight  = Math.min(vpW, boardRight);
-  const drawBottom = Math.min(vpH, boardBottom);
+  const startCol = Math.max(0, Math.floor((clipL - offsetX) / scale));
+  const startRow = Math.max(0, Math.floor((clipT - offsetY) / scale));
+  const endCol   = Math.min(BOARD_WIDTH,  Math.ceil((clipR - offsetX) / scale));
+  const endRow   = Math.min(BOARD_HEIGHT, Math.ceil((clipB - offsetY) / scale));
 
-  // First visible board column/row index (the grid line to the LEFT/ABOVE the viewport edge)
-  const startCol = Math.max(0, Math.floor(-ox / scale));
-  const startRow = Math.max(0, Math.floor(-oy / scale));
-
-  // Last visible column/row index (add 1 to ensure we cover the right/bottom edge)
-  const endCol = Math.min(BOARD_WIDTH,  Math.ceil((drawRight  - ox) / scale) + 1);
-  const endRow = Math.min(BOARD_HEIGHT, Math.ceil((drawBottom - oy) / scale) + 1);
-
-  // Vertical lines — each position is derived independently from the world-space
-  // column index so floating-point rounding NEVER accumulates across iterations.
+  // Collect unique x positions (duplicate-pixel guard for awkward zoom levels)
+  const xs = [];
+  let lastX = -Infinity;
   for (let col = startCol; col <= endCol; col++) {
-    const x = Math.round(col * scale + ox);
-    if (x < drawLeft || x > drawRight) continue;
-    const px = x + 0.5;
-    overlayCtx.moveTo(px, drawTop);
-    overlayCtx.lineTo(px, drawBottom);
+    const x = Math.floor(col * scale + offsetX);
+    if (x === lastX || x < clipL || x > clipR) continue;
+    lastX = x;
+    xs.push(x);
   }
 
-  // Horizontal lines — same independent derivation per row index.
+  const ys = [];
+  let lastY = -Infinity;
   for (let row = startRow; row <= endRow; row++) {
-    const y = Math.round(row * scale + oy);
-    if (y < drawTop || y > drawBottom) continue;
-    const py = y + 0.5;
-    overlayCtx.moveTo(drawLeft, py);
-    overlayCtx.lineTo(drawRight, py);
+    const y = Math.floor(row * scale + offsetY);
+    if (y === lastY || y < clipT || y > clipB) continue;
+    lastY = y;
+    ys.push(y);
   }
 
-  overlayCtx.stroke();
-  
-  // Draw the outer board border
-  overlayCtx.strokeStyle = 'rgba(0,0,0,0.6)';
-  const boardW = Math.round(BOARD_WIDTH * scale);
-  const boardH = Math.round(BOARD_HEIGHT * scale);
-  overlayCtx.strokeRect(ox + 0.5, oy + 0.5, boardW, boardH);
+  // 2×2 semi-transparent dots — visible but not distracting
+  const DOT = 2;
+  gridCtx.fillStyle = 'rgba(0,0,0,0.25)';
+  for (const y of ys) {
+    for (const x of xs) {
+      gridCtx.fillRect(x, y, DOT, DOT);
+    }
+  }
+
+  // Board border
+  gridCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+  gridCtx.lineWidth = 1;
+  gridCtx.strokeRect(
+    offsetX + 0.5, offsetY + 0.5,
+    Math.round(BOARD_WIDTH * scale),
+    Math.round(BOARD_HEIGHT * scale)
+  );
 }
+
+function drawGridIfDirty() {
+  const scaleChanged  = scale   !== lastGridScale;
+  const offsetChanged = offsetX !== lastGridOffsetX || offsetY !== lastGridOffsetY;
+  if (!scaleChanged && !offsetChanged) return;
+  lastGridScale   = scale;
+  lastGridOffsetX = offsetX;
+  lastGridOffsetY = offsetY;
+  drawGrid();
+}
+
 let isRedrawPending = false;
 
 function redraw() {
@@ -426,9 +460,10 @@ function redraw() {
     
     const dpr = window.devicePixelRatio || 1;
     
-    // Lock offsets to exact whole numbers to completely eliminate panning jitter
-    const ox = Math.round(offsetX);
-    const oy = Math.round(offsetY);
+    // offsetX/Y are always whole numbers (rounded at every write site),
+    // so no rounding is needed here — just use them directly.
+    const ox = offsetX;
+    const oy = offsetY;
     
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0f172a';
@@ -449,18 +484,24 @@ function redraw() {
     // Draw the pixel art buffer natively scaled to integer bounds
     ctx.drawImage(bufferCanvas, 0, 0, BOARD_WIDTH, BOARD_HEIGHT, ox, oy, boardW, boardH);
 
-    drawGrid();
+    // Redraw grid only when scale/offset changed — grid lives on its own canvas
+    drawGridIfDirty();
+
+    // Overlay is cursor-only; clear and redraw just the cursor highlight
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
     drawCursor();
   });
 }
 
 function getCanvasCoords(clientX, clientY) {
   // Use viewport rect — canvas pixel dimensions are sized from viewport, not from canvas CSS size.
-  // IMPORTANT: use Math.round(offsetX/Y) here to match the rounded offsets used by drawCursor,
-  // so tap-to-place lands on the same cell the cursor highlight is drawn on.
+  // offsetX/Y are always whole numbers (rounded at every write site), so
+  // tap-to-place always lands on the same cell the cursor highlight is drawn on.
   const rect = viewport.getBoundingClientRect();
-  const ox = Math.round(offsetX);
-  const oy = Math.round(offsetY);
+  // offsetX/Y are always integers — no rounding needed
+  const ox = offsetX;
+  const oy = offsetY;
   const x = (clientX - rect.left - ox) / scale;
   const y = (clientY - rect.top - oy) / scale;
   return {
@@ -583,8 +624,9 @@ function drawCursor() {
 
   overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const ox = Math.round(offsetX);
-  const oy = Math.round(offsetY);
+  // offsetX/Y are always integers — no rounding needed
+  const ox = offsetX;
+  const oy = offsetY;
   
   const px = Math.floor(x * scale + ox);
   const py = Math.floor(y * scale + oy);
@@ -686,8 +728,8 @@ function applyToolAtCell(x, y) {
   lastPlaceAt = Date.now();
 
   // Draw only the new pixel directly to ctx for instant feedback
-  const ox = Math.round(offsetX);
-  const oy = Math.round(offsetY);
+  const ox = offsetX;
+  const oy = offsetY;
   const px = Math.floor(x * scale + ox);
   const py = Math.floor(y * scale + oy);
   const size = Math.max(1, Math.round(pixelSize * scale));
@@ -721,11 +763,7 @@ function applyToolAtCell(x, y) {
 }
 
 function placeFromKeyboard() {
-  if (!currentUser) {
-    authOverlay.classList.remove('hidden');
-    authOverlay.style.display = 'grid';
-    return;
-  }
+  if (!currentUser) return;
   ensureBoardCursor();
   applyToolAtCell(cursorPosition.x, cursorPosition.y);
 }
@@ -800,10 +838,7 @@ function clearCanvasLocal(announce = true) {
 }
 
 function clearCanvas() {
-  if (!currentUser) {
-    authOverlay.classList.remove('hidden');
-    return;
-  }
+  if (!currentUser) return;
   clearCanvasLocal(true);
 }
 
@@ -814,6 +849,100 @@ function exportPng() {
   link.click();
 }
 
+function hexToHsl(hex) {
+  let [r, g, b] = hexToRgba(hex).slice(0, 3).map(v => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+  if (max === min) {
+    h = s = 0;
+  } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+}
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return '#' + [f(0), f(8), f(4)].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+}
+
+function removeVariationPicker() {
+  const existing = document.querySelector('.variation-picker');
+  if (existing) existing.remove();
+}
+
+function showVariationPicker(button, baseColor) {
+  removeVariationPicker();
+
+  const [h, s, l] = hexToHsl(baseColor);
+  // 3 lightness steps: darker, base, lighter
+  const variants = [
+    hslToHex(h, s, Math.max(0,  l - 25)),
+    hslToHex(h, s, Math.max(0,  l - 12)),
+    baseColor,
+    hslToHex(h, s, Math.min(100, l + 12)),
+    hslToHex(h, s, Math.min(100, l + 25)),
+  ];
+
+  const picker = document.createElement('div');
+  picker.className = 'variation-picker';
+  picker.style.cssText = `
+    position: fixed;
+    z-index: 9999;
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(15,18,25,0.97);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  `;
+
+  variants.forEach((hex, i) => {
+    const swatch = document.createElement('button');
+    swatch.className = 'variation-swatch';
+    swatch.style.cssText = `
+      width: ${i === 2 ? '36px' : '28px'};
+      height: ${i === 2 ? '36px' : '28px'};
+      border-radius: 6px;
+      background: ${hex};
+      border: ${i === 2 ? '2px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.2)'};
+      cursor: pointer;
+      flex-shrink: 0;
+    `;
+    swatch.title = hex.toUpperCase();
+    swatch.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setColor(hex);
+      removeVariationPicker();
+    });
+    picker.appendChild(swatch);
+  });
+
+  // Position below the button
+  document.body.appendChild(picker);
+  const rect = button.getBoundingClientRect();
+  const pw = picker.offsetWidth;
+  let left = rect.left + rect.width / 2 - pw / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+  picker.style.left = `${left}px`;
+  picker.style.top  = `${rect.bottom + 6}px`;
+
+  // Dismiss on outside click
+  setTimeout(() => {
+    document.addEventListener('click', removeVariationPicker, { once: true });
+  }, 0);
+}
+
 function createPaletteButton(entry) {
   const button = document.createElement('button');
   button.style.background = entry.color;
@@ -822,18 +951,27 @@ function createPaletteButton(entry) {
   if (entry.color.toLowerCase() === (color || '').toLowerCase()) {
     button.classList.add('selected');
   }
-  
-  // Apply the color immediately upon clicking (no more delay)
+
   button.addEventListener('click', () => {
     setColor(entry.color);
   });
 
-  // Double-clicking will still open the menu for the newly selected color
-  button.addEventListener('dblclick', (ev) => {
-    ev.preventDefault();
-    showVariationPicker(entry, button);
+  // Double-click: show lighter/darker variation picker
+  button.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    showVariationPicker(button, entry.color);
   });
-  
+
+  // Right-click: remove color from palette
+  button.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const idx = paletteColors.findIndex(p => normalizeHexColor(p.color) === normalizeHexColor(entry.color));
+    if (idx !== -1) {
+      paletteColors.splice(idx, 1);
+      renderPalette();
+    }
+  });
+
   return button;
 }
 
@@ -866,173 +1004,11 @@ function rgbToHex(r, g, b) {
   }).join('');
 }
 
-function generateColorVariations(baseColor) {
-  const [r, g, b] = hexToRgba(baseColor);
-  
-  // Generate 2 lighter and 2 darker versions
-  const variations = [];
-  
-  // Lighter variations (increase towards white)
-  for (let i = 1; i <= 2; i++) {
-    const factor = i * 0.25;
-    const lr = Math.round(r + (255 - r) * factor);
-    const lg = Math.round(g + (255 - g) * factor);
-    const lb = Math.round(b + (255 - b) * factor);
-    variations.push(rgbToHex(lr, lg, lb));
-  }
-  
-  // Darker variations (decrease towards black)
-  for (let i = 1; i <= 2; i++) {
-    const factor = i * 0.25;
-    const dr = Math.round(r * (1 - factor));
-    const dg = Math.round(g * (1 - factor));
-    const db = Math.round(b * (1 - factor));
-    variations.push(rgbToHex(dr, dg, db));
-  }
-  
-  return variations;
-}
-
-function showVariationPicker(entry, anchorEl) {
-  // Remove any existing picker before opening a new one
-  const existing = document.querySelector('.variation-picker');
-  if (existing) existing.remove();
-
-  const baseColor = entry.color;
-  const [lighter1, lighter2, darker1, darker2] = generateColorVariations(baseColor);
-  const normBase = normalizeHexColor(baseColor);
-
-  const picker = document.createElement('div');
-  picker.className = 'variation-picker';
-  picker.style.position = 'fixed';
-  picker.style.zIndex = 100000; // Boosted z-index
-  picker.style.display = 'grid';
-  picker.style.gridTemplateColumns = '40px 56px 40px';
-  picker.style.gridTemplateRows = '40px 56px 40px';
-  picker.style.gap = '6px';
-  picker.style.padding = '8px';
-  picker.style.borderRadius = '14px';
-  picker.style.boxShadow = '0 8px 32px rgba(0,0,0,0.8)';
-  picker.style.background = '#11171f'; // Fixed: Solid dark color to remove blurriness
-  picker.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-
-  const addVariantButton = (hex, onClick) => {
-    const btn = document.createElement('button');
-    btn.className = 'variation-swatch';
-    btn.style.width = '40px';
-    btn.style.height = '40px';
-    btn.style.border = '1px solid rgba(255,255,255,0.08)';
-    btn.style.borderRadius = '10px';
-    btn.style.background = normalizeHexColor(hex);
-    btn.title = normalizeHexColor(hex).toUpperCase();
-    btn.addEventListener('click', onClick);
-    btn.addEventListener('dblclick', (ev) => {
-      ev.stopPropagation();
-      showVariationPicker({ ...entry, color: normalizeHexColor(hex) }, anchorEl);
-    });
-    return btn;
-  };
-
-  // Top-left darker
-  picker.appendChild(addVariantButton(darker1, () => applyPickerColor(darker1, entry, anchorEl, picker)));
-  // Top-center spacer
-  picker.appendChild(document.createElement('div'));
-  // Top-right darker
-  picker.appendChild(addVariantButton(darker2, () => applyPickerColor(darker2, entry, anchorEl, picker)));
-
-  // Middle-left spacer
-  picker.appendChild(document.createElement('div'));
-  // Center original color
-  const center = document.createElement('button');
-  center.className = 'variation-swatch';
-  center.style.width = '56px';
-  center.style.height = '56px';
-  center.style.border = '2px solid rgba(255,255,255,0.28)';
-  center.style.borderRadius = '14px';
-  center.style.background = normBase;
-  center.title = normBase.toUpperCase();
-  center.addEventListener('click', () => {
-    setColor(normBase);
-    picker.remove();
-  });
-  center.addEventListener('dblclick', (ev) => {
-    ev.stopPropagation();
-    showVariationPicker(entry, anchorEl);
-  });
-  picker.appendChild(center);
-  // Middle-right spacer
-  picker.appendChild(document.createElement('div'));
-
-  // Bottom-left lighter
-  picker.appendChild(addVariantButton(lighter1, () => applyPickerColor(lighter1, entry, anchorEl, picker)));
-  // Bottom-center spacer
-  picker.appendChild(document.createElement('div'));
-  // Bottom-right lighter
-  picker.appendChild(addVariantButton(lighter2, () => applyPickerColor(lighter2, entry, anchorEl, picker)));
-
-  picker.style.visibility = 'hidden';
-  picker.style.top = '-9999px';
-  picker.style.left = '-9999px';
-  const fsTarget = document.fullscreenElement || document.body;
-  fsTarget.appendChild(picker);
-
-  void picker.offsetWidth;
-
-  const anchorRect = anchorEl.getBoundingClientRect();
-  const pickerRect = picker.getBoundingClientRect();
-  const controlsPanel = document.querySelector('.controls-panel');
-  const panelRect = controlsPanel ? controlsPanel.getBoundingClientRect() : null;
-
-  let left, top;
-  if (panelRect && panelRect.left > pickerRect.width + 20) {
-    left = panelRect.left - pickerRect.width - 12;
-    top = anchorRect.top + anchorRect.height / 2 - pickerRect.height / 2;
-  } else {
-    left = anchorRect.left + anchorRect.width / 2 - pickerRect.width / 2;
-    top = anchorRect.top - pickerRect.height - 8;
-  }
-
-  left = Math.max(8, Math.min(left, window.innerWidth - pickerRect.width - 8));
-  top = Math.max(8, Math.min(top, window.innerHeight - pickerRect.height - 8));
-
-  picker.style.left = `${left}px`;
-  picker.style.top = `${top}px`;
-  picker.style.visibility = 'visible';
-
-  const onDocClick = (ev) => {
-    if (!picker.contains(ev.target) && ev.target !== anchorEl) {
-      picker.remove();
-      document.removeEventListener('click', onDocClick);
-    }
-  };
-  setTimeout(() => document.addEventListener('click', onDocClick), 0);
-}
-
-function applyPickerColor(newColor, entry, anchorEl, picker) {
-  const normalized = normalizeHexColor(newColor);
-  // Update the palette swatch visually
-  anchorEl.style.background = normalized;
-  anchorEl.dataset.color = normalized;
-  anchorEl.title = normalized.toUpperCase();
-  // Update the in-memory palette entry so the change sticks
-  const paletteSource = paletteColors.length > 0 ? paletteColors : DEFAULT_PALETTE;
-  const paletteEntry = paletteSource.find(pc => pc.id === entry.id);
-  if (paletteEntry) {
-    paletteEntry.color = normalized;
-    paletteEntry.label = normalized;
-  }
-  setColor(normalized);
-  picker.remove();
-}
-
-function addColorToPalette() {
-  // Disabled: new colors can only be created by double-clicking existing colors
-}
 
 function setTool(newTool) {
   tool = newTool;
   toolButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.tool === newTool));
-  currentToolLabel.textContent = newTool.charAt(0).toUpperCase() + newTool.slice(1);
+  dispatchStateChange({ currentTool: newTool.charAt(0).toUpperCase() + newTool.slice(1) });
   
   // Manage active cursor styling layers directly on the viewport wrapper container
   if (tool === 'hand') {
@@ -1060,17 +1036,14 @@ function brightnessRgb(r, g, b) {
 function applyColorSwatchStyles(hex) {
   const [r, g, b] = hexToRgba(hex);
   const y = brightnessRgb(r, g, b);
-  currentColorLabel.style.backgroundColor = hex;
-  currentColorLabel.style.color = y < 165 ? '#f8fafc' : '#0f172a';
-  currentColorLabel.style.border =
-    y < 165 ? '1px solid rgba(255, 255, 255, 0.35)' : '1px solid rgba(15, 23, 42, 0.28)';
+  // currentColor swatch styling is handled by Alpine :style binding
 }
 
 function setColor(newColor) {
   const norm = normalizeHexColor(newColor);
   color = norm;
-  colorInput.value = norm;
-  currentColorLabel.textContent = norm.toUpperCase();
+  if (colorInput) colorInput.value = norm;
+  dispatchStateChange({ currentColor: norm });
   applyColorSwatchStyles(norm);
 
   document.querySelectorAll('.palette button, .fullscreen-palette button').forEach(b => {
@@ -1082,6 +1055,16 @@ function setColor(newColor) {
 }
 
 // cleanup: keep the UI consistent after any color change or palette update
+function addColorToPalette() {
+  const newColor = normalizeHexColor(colorInput ? colorInput.value : '#000000');
+  const already = paletteColors.some(e => normalizeHexColor(e.color) === newColor);
+  if (!already) {
+    paletteColors.push(asPaletteEntry({ id: null, label: newColor, color: newColor }));
+  }
+  renderPalette();
+  setColor(newColor);
+}
+
 function syncUI() {
   renderPalette();
   setColor(color);
@@ -1110,7 +1093,7 @@ function removeClientHeartbeat() {
 }
 
 function updateLiveCount(count) {
-  liveCountLabel.textContent = count;
+  dispatchStateChange({ liveCount: count });
 }
 
 function startAction(event) {
@@ -1129,7 +1112,6 @@ function startAction(event) {
   }
 
   if (!currentUser) {
-    authOverlay.classList.remove('hidden');
     return;
   }
 
@@ -1198,12 +1180,12 @@ function handleWheel(event) {
   nextZoom = clamp(nextZoom, 0.05, MAX_ZOOM_SCALE);
   scale = nextZoom;
   
-  offsetX = mouseX - boardX * scale;
-  offsetY = mouseY - boardY * scale;
+  offsetX = Math.round(mouseX - boardX * scale);
+  offsetY = Math.round(mouseY - boardY * scale);
   
   clampOffsets();
   zoomInput.value = Math.round(scale * 100);
-  zoomLevelLabel.textContent = `${Math.round(scale * 100)}%`;
+  dispatchStateChange({ zoomLevel: Math.round(scale * 100) });
   
   // NEW: Instantly recalculate the cursor position based on the new zoom scale
   const newCoords = getCanvasCoords(event.clientX, event.clientY);
@@ -1245,8 +1227,8 @@ function handlePanMove(event) {
     allowedY = clamp(proposedY, _vpH - scaledHeight, 0);
   }
 
-  offsetX = allowedX;
-  offsetY = allowedY;
+  offsetX = Math.round(allowedX);
+  offsetY = Math.round(allowedY);
   redraw();
 
   if (proposedX !== allowedX) panStartX = event.clientX - allowedX;
@@ -1271,12 +1253,14 @@ function resizeViewport() {
   const w = Math.max(1, Math.floor(rect.width));
   const h = Math.max(1, Math.floor(rect.height));
   
-  // Set the internal rendering buffers to match exact hardware pixels
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  overlay.width = w * dpr;
-  overlay.height = h * dpr;
-  
+  canvas.width      = w * dpr;
+  canvas.height     = h * dpr;
+  gridCanvas.width  = w * dpr;
+  gridCanvas.height = h * dpr;
+  overlay.width     = w * dpr;
+  overlay.height    = h * dpr;
+
+  lastGridScale = null;
   clampOffsets();
   redraw();
 }
@@ -1345,10 +1329,10 @@ zoomInput.addEventListener('input', event => {
   const boardCenterY = (centerY - offsetY) / scale;
 
   scale = clamp(nextZoom, 0.05, MAX_ZOOM_SCALE);
-  offsetX = centerX - boardCenterX * scale;
-  offsetY = centerY - boardCenterY * scale;
+  offsetX = Math.round(centerX - boardCenterX * scale);
+  offsetY = Math.round(centerY - boardCenterY * scale);
   clampOffsets();
-  zoomLevelLabel.textContent = `${Math.round(scale * 100)}%`;
+  dispatchStateChange({ zoomLevel: Math.round(scale * 100) });
 
   // NEW: Instantly recalculate the cursor position based on the new zoom scale
   const newCoords = getCanvasCoords(event.clientX, event.clientY);
@@ -1360,6 +1344,8 @@ zoomInput.addEventListener('input', event => {
 toggleGridBtn.addEventListener('click', () => {
   gridEnabled = !gridEnabled;
   toggleGridBtn.classList.toggle('active', gridEnabled);
+  // Force a full grid redraw since gridEnabled changed
+  lastGridScale = null;
   redraw();
 });
 
@@ -1368,8 +1354,8 @@ if (toggleGridBtn) toggleGridBtn.classList.toggle('active', gridEnabled);
 
 clearCanvasButton.addEventListener('click', clearCanvas);
 exportButton.addEventListener('click', exportPng);
-colorInput.addEventListener('input', event => setColor(event.target.value));
-addColorButton.addEventListener('click', addColorToPalette);
+if (colorInput) colorInput.addEventListener('input', event => setColor(event.target.value));
+if (addColorButton) addColorButton.addEventListener('click', addColorToPalette);
 
 toolButtons.forEach(button => {
   button.addEventListener('click', () => setTool(button.dataset.tool));
@@ -1384,6 +1370,7 @@ authRegisterButton.addEventListener('click', event => {
   handleRegister();
 });
 
+const logoutButton = document.getElementById('logoutButton');
 if (logoutButton) {
   logoutButton.addEventListener('click', event => {
     event.preventDefault();
@@ -1547,9 +1534,7 @@ window.addEventListener('load', () => {
     offsetY = rect.height / 2 - targetY * scale;
 
     zoomInput.value = Math.round(scale * 100);
-    if (typeof zoomLevelLabel !== 'undefined' && zoomLevelLabel) {
-      zoomLevelLabel.textContent = `${Math.round(scale * 100)}%`;
-    }
+    dispatchStateChange({ zoomLevel: Math.round(scale * 100) });
 
     clampOffsets();
     redraw();
@@ -1693,11 +1678,14 @@ viewport.addEventListener("touchmove", (e) => {
       isTouchDragging = true;
     }
 
-    offsetX += dx;
-    offsetY += dy;
+    // Round at write time so offsetX/Y are always whole numbers.
+    // Storing fractional values and rounding only inside redraw() causes
+    // a 1px oscillation on every frame — the visible pan jitter on mobile.
+    offsetX = Math.round(offsetX + dx);
+    offsetY = Math.round(offsetY + dy);
     lastTouchX = e.touches[0].clientX;
     lastTouchY = e.touches[0].clientY;
-    
+
     clampOffsets();
     redraw();
   } else if (e.touches.length === 2) {
@@ -1722,12 +1710,13 @@ viewport.addEventListener("touchmove", (e) => {
       nextZoom = clamp(nextZoom, 0.05, MAX_ZOOM_SCALE);
       scale = nextZoom;
 
-      offsetX = mouseX - boardX * scale;
-      offsetY = mouseY - boardY * scale;
+      // Round at write time — same reason as the pan path above
+      offsetX = Math.round(mouseX - boardX * scale);
+      offsetY = Math.round(mouseY - boardY * scale);
 
       clampOffsets();
       zoomInput.value = Math.round(scale * 100);
-      if (zoomLevelLabel) zoomLevelLabel.textContent = `${Math.round(scale * 100)}%`;
+      dispatchStateChange({ zoomLevel: Math.round(scale * 100) });
       redraw();
     }
     lastTouchDistance = distance;

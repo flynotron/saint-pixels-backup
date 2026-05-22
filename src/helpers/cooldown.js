@@ -5,11 +5,10 @@ const userCooldowns = new Map(); // @TODO Use KeyVal service for this
  * @param {string} username
  * @return {number}
  */
-export function getCooldown(username) {
+function getCooldown(username) {
   const now = Date.now();
   const lastTime = userCooldowns.get(username) || 0;
   const remaining = lastTime + 5000 - now;
-
   return remaining > 0 ? remaining : 0;
 }
 
@@ -17,6 +16,8 @@ export function getCooldown(username) {
  * Reset the cooldown timer for the user
  * @param {string} username
  */
-export function resetCooldown(username) {
-    userCooldowns.set(username, Date.now());
+function resetCooldown(username) {
+  userCooldowns.set(username, Date.now());
 }
+
+module.exports = { getCooldown, resetCooldown };
