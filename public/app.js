@@ -419,12 +419,16 @@ function drawGrid() {
     ys.push(y);
   }
 
-  // 2×2 semi-transparent dots — visible but not distracting
-  const DOT = 2;
-  gridCtx.fillStyle = 'rgba(0,0,0,0.25)';
+  // Cross markers at every corner: each arm extends 25% into the adjacent cell.
+  const armX = Math.min(scale * 0.25, 6);
+  const armY = Math.min(scale * 0.25, 6);
+  const thick = Math.min(Math.max(scale * 0.15, 1), 2);
+
+  gridCtx.fillStyle = 'rgba(0,0,0,0.18)';
   for (const y of ys) {
     for (const x of xs) {
-      gridCtx.fillRect(x, y, DOT, DOT);
+      gridCtx.fillRect(x - armX, y - thick / 2, armX * 2, thick);
+      gridCtx.fillRect(x - thick / 2, y - armY, thick, armY * 2);
     }
   }
 
@@ -882,12 +886,10 @@ function removeVariationPicker() {
 
 function showVariationPicker(button, baseColor) {
   removeVariationPicker();
-
   const [h, s, l] = hexToHsl(baseColor);
-  // 3 lightness steps: darker, base, lighter
   const variants = [
-    hslToHex(h, s, Math.max(0,  l - 25)),
-    hslToHex(h, s, Math.max(0,  l - 12)),
+    hslToHex(h, s, Math.max(0,   l - 25)),
+    hslToHex(h, s, Math.max(0,   l - 12)),
     baseColor,
     hslToHex(h, s, Math.min(100, l + 12)),
     hslToHex(h, s, Math.min(100, l + 25)),
@@ -896,11 +898,8 @@ function showVariationPicker(button, baseColor) {
   const picker = document.createElement('div');
   picker.className = 'variation-picker';
   picker.style.cssText = `
-    position: fixed;
-    z-index: 9999;
-    display: flex;
-    gap: 6px;
-    padding: 8px;
+    position: fixed; z-index: 9999;
+    display: flex; gap: 6px; padding: 8px;
     background: rgba(15,18,25,0.97);
     border: 1px solid rgba(255,255,255,0.14);
     border-radius: 12px;
@@ -913,11 +912,9 @@ function showVariationPicker(button, baseColor) {
     swatch.style.cssText = `
       width: ${i === 2 ? '36px' : '28px'};
       height: ${i === 2 ? '36px' : '28px'};
-      border-radius: 6px;
-      background: ${hex};
+      border-radius: 6px; background: ${hex};
       border: ${i === 2 ? '2px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.2)'};
-      cursor: pointer;
-      flex-shrink: 0;
+      cursor: pointer; flex-shrink: 0;
     `;
     swatch.title = hex.toUpperCase();
     swatch.addEventListener('click', (e) => {
@@ -928,7 +925,6 @@ function showVariationPicker(button, baseColor) {
     picker.appendChild(swatch);
   });
 
-  // Position below the button
   document.body.appendChild(picker);
   const rect = button.getBoundingClientRect();
   const pw = picker.offsetWidth;
@@ -937,7 +933,6 @@ function showVariationPicker(button, baseColor) {
   picker.style.left = `${left}px`;
   picker.style.top  = `${rect.bottom + 6}px`;
 
-  // Dismiss on outside click
   setTimeout(() => {
     document.addEventListener('click', removeVariationPicker, { once: true });
   }, 0);
@@ -956,13 +951,11 @@ function createPaletteButton(entry) {
     setColor(entry.color);
   });
 
-  // Double-click: show lighter/darker variation picker
   button.addEventListener('dblclick', (e) => {
     e.preventDefault();
     showVariationPicker(button, entry.color);
   });
 
-  // Right-click: remove color from palette
   button.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const idx = paletteColors.findIndex(p => normalizeHexColor(p.color) === normalizeHexColor(entry.color));
