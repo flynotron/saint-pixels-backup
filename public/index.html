@@ -25,8 +25,21 @@
   </script>
 </head>
 <body
-  class="h-screen overflow-hidden bg-[radial-gradient(circle_at_top,#292929_0%,#2e2e2e_48%)] text-slate-100 font-sans flex items-stretch"
-  x-data="spApp()"
+  class="h-screen overflow-hidden text-slate-100 font-sans flex items-stretch" style="background:#1a1a1b;"
+  x-data="{
+    currentUser: null,
+    currentTool: 'Brush',
+    currentColor: '#000000',
+    zoomLevel: 100,
+    liveCount: 1,
+    syncFromEngine(d) {
+      if (d.currentUser  !== undefined) this.currentUser  = d.currentUser;
+      if (d.currentTool  !== undefined) this.currentTool  = d.currentTool;
+      if (d.currentColor !== undefined) this.currentColor = d.currentColor;
+      if (d.zoomLevel    !== undefined) this.zoomLevel    = d.zoomLevel;
+      if (d.liveCount    !== undefined) this.liveCount    = d.liveCount;
+    }
+  }"
   @sp-state-change.window="syncFromEngine($event.detail)"
 >
 
@@ -81,7 +94,7 @@
   <div class="w-full flex flex-col h-screen overflow-hidden px-6 py-5">
 
     <!-- TOPBAR -->
-    <header class="flex flex-nowrap gap-3 justify-between items-center px-4 py-2.5 border border-white/10 rounded-3xl bg-[rgba(66,66,66,0.9)] shadow-xl overflow-x-auto overflow-y-hidden scrollbar-thin min-h-[54px] shrink-0">
+    <header class="flex flex-nowrap gap-3 justify-between items-center px-4 py-2.5 border border-white/10 rounded-3xl bg-[rgba(47,47,48,0.98)] shadow-xl overflow-x-auto overflow-y-hidden scrollbar-thin min-h-[54px] shrink-0">
 
       <!-- Brand -->
       <div class="flex flex-row flex-nowrap items-baseline gap-1.5 shrink-0 min-w-0">
@@ -93,6 +106,16 @@
           rel="noopener"
         >Contribute</a>
         <span class="text-slate-400 text-sm whitespace-nowrap brand-tagline">1920×1080 Live Canvas</span>
+      </div>
+
+      <!-- Drag handle — left/right arrows signal horizontal scrollability -->
+      <div class="topbar-drag-handle" id="topbar-drag-handle" title="Drag to scroll">
+        <svg width="32" height="16" viewBox="0 0 32 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none;display:block;">
+          <polyline points="10,3 4,8 10,13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <line x1="4" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <polyline points="22,3 28,8 22,13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <line x1="28" y1="8" x2="19" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
       </div>
 
       <!-- Status chips -->
@@ -139,6 +162,12 @@
           <strong id="zoom-level" class="text-sm font-semibold" x-text="zoomLevel + '%'"></strong>
         </div>
 
+        <!-- Coordinates (visible on mobile) -->
+        <div class="inline-flex flex-row items-center gap-2 px-3 py-1.5 bg-black/20 rounded-full border border-white/10 whitespace-nowrap mob-coords-chip">
+          <span class="text-[0.68rem] font-semibold uppercase tracking-widest text-slate-400">XY</span>
+          <strong id="coord-topbar" class="text-sm font-semibold font-mono">—</strong>
+        </div>
+
       </div>
     </header>
 
@@ -146,7 +175,7 @@
     <main class="grid gap-5 mt-3 flex-1 min-h-0 overflow-hidden" style="grid-template-columns: 340px minmax(0,1fr)">
 
       <!-- CONTROLS PANEL -->
-      <aside class="flex flex-col gap-3 p-4 border border-white/10 rounded-3xl bg-[rgba(85,85,85,0.9)] shadow-xl overflow-x-hidden overflow-y-auto min-h-0">
+      <aside class="flex flex-col gap-3 p-4 border border-white/10 rounded-3xl bg-[rgba(47,47,48,0.98)] shadow-xl overflow-x-hidden overflow-y-auto min-h-0">
 
         <!-- Tools -->
         <section class="mb-0">
@@ -193,7 +222,7 @@
       </aside>
 
       <!-- CANVAS PANEL -->
-      <section class="flex flex-col gap-2.5 p-4 border border-white/10 rounded-3xl bg-[rgba(85,85,85,0.9)] shadow-xl overflow-hidden min-h-0">
+      <section class="flex flex-col gap-2.5 p-4 border border-white/10 rounded-3xl bg-[rgba(47,47,48,0.98)] shadow-xl overflow-hidden min-h-0">
 
         <!-- Canvas toolbar -->
         <div class="flex flex-wrap items-center gap-2.5 canvas-toolbar">
@@ -212,8 +241,8 @@
         </div>
 
         <!-- Viewport wrapper -->
-        <div class="viewport-wrapper w-full flex-1 min-h-0 border border-white/10 bg-[#0f172a] overflow-hidden relative flex"
-          style="background-image:radial-gradient(circle,rgba(255,255,255,0.12) 1px,transparent 1px);background-size:24px 24px;">
+        <div class="viewport-wrapper w-full flex-1 min-h-0 border border-white/10 overflow-hidden relative flex"
+          style="background-color:#1a1a1b;background-image:radial-gradient(circle,rgba(255,255,255,0.12) 1px,transparent 1px);background-size:24px 24px;">
 
           <div class="viewport w-full h-full relative" id="viewport">
             <canvas id="canvas"></canvas>
@@ -238,7 +267,7 @@
           <div class="cooldown-bar pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-3.5 w-[min(360px,calc(100%-32px))] z-[4] flex flex-col items-stretch gap-1.5 px-3.5 py-2.5 rounded-2xl bg-[rgba(52,52,53,0.82)] border border-white/10 shadow-xl backdrop-blur-md"
             id="cooldownBar" role="status" aria-live="polite">
             <div class="h-2 rounded-full bg-white/10 overflow-hidden cooldown-bar__track">
-              <div class="h-full w-full rounded-[inherit] bg-gradient-to-r from-sky-400/95 to-emerald-400/95 transition-[width] duration-200 linear cooldown-bar__fill" id="cooldownFill"></div>
+              <div class="h-full w-full rounded-[inherit] bg-gradient-to-r from-sky-400/95 to-emerald-400/95 cooldown-bar__fill" id="cooldownFill"></div>
             </div>
             <span class="text-[0.78rem] font-semibold tracking-[0.02em] text-slate-100/90 text-center cooldown-bar__label" id="cooldownBarLabel">Sign in to place pixels</span>
           </div>
@@ -265,6 +294,6 @@
     </main>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js" defer></script>
 </body>
 </html>

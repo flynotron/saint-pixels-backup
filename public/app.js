@@ -1,31 +1,17 @@
 // ═══════════════════════════════════════════════════════════════════
-// Alpine.js component — manages reactive UI state shown in the header
-// and auth overlay. The canvas engine below dispatches `sp-state-change`
-// events; Alpine picks them up via @sp-state-change.window on <body>.
+// Alpine.js component data is inlined directly in the <body x-data="...">
+// attribute in index.html — no alpine:init registration needed.
+// The canvas engine dispatches `sp-state-change` custom events;
+// Alpine picks them up via @sp-state-change.window on <body>.
 // ═══════════════════════════════════════════════════════════════════
-document.addEventListener('alpine:init', () => {
-  Alpine.data('spApp', () => ({
-    currentUser: null,
-    currentTool: 'Brush',
-    currentColor: '#000000',
-    zoomLevel: 100,
-    liveCount: 1,
-
-    syncFromEngine(detail) {
-      if (detail.currentUser  !== undefined) this.currentUser  = detail.currentUser;
-      if (detail.currentTool  !== undefined) this.currentTool  = detail.currentTool;
-      if (detail.currentColor !== undefined) this.currentColor = detail.currentColor;
-      if (detail.zoomLevel    !== undefined) this.zoomLevel    = detail.zoomLevel;
-      if (detail.liveCount    !== undefined) this.liveCount    = detail.liveCount;
-    }
-  }));
-});
 
 // Helper: send reactive state updates to Alpine without touching the DOM
 function dispatchStateChange(detail) {
   window.dispatchEvent(new CustomEvent('sp-state-change', { detail }));
 }
 
+
+document.addEventListener('DOMContentLoaded', () => {
 const canvas = document.getElementById('canvas');
 const overlay = document.getElementById('overlay');
 const gridCanvas = document.getElementById('grid');
@@ -340,6 +326,7 @@ async function handleRegister(event) {
   }
 }
 
+let _cooldownRafId = null;
 function updateCooldownLabel() {
   if (!cooldownBar || !cooldownFill || !cooldownBarLabel) return;
   if (!currentUser) {
@@ -347,6 +334,7 @@ function updateCooldownLabel() {
     cooldownBar.classList.remove('cooldown-bar--cooling');
     cooldownFill.style.width = '100%';
     cooldownBarLabel.textContent = 'Sign in to place pixels';
+    if (_cooldownRafId) { cancelAnimationFrame(_cooldownRafId); _cooldownRafId = null; }
     return;
   }
   cooldownBar.classList.remove('cooldown-bar--guest');
@@ -356,9 +344,28 @@ function updateCooldownLabel() {
   if (remaining > 0) {
     cooldownBar.classList.add('cooldown-bar--cooling');
     cooldownBarLabel.textContent = `Pixel cooldown · ${Math.ceil(remaining / 1000)}s`;
+    // Drive smooth updates via rAF while cooling
+    if (!_cooldownRafId) {
+      const tick = () => {
+        const rem = Math.max(0, COOLDOWN_MS - (Date.now() - lastPlaceAt));
+        const pct = (1 - rem / COOLDOWN_MS) * 100;
+        cooldownFill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        if (rem > 0) {
+          cooldownBarLabel.textContent = `Pixel cooldown · ${Math.ceil(rem / 1000)}s`;
+          _cooldownRafId = requestAnimationFrame(tick);
+        } else {
+          cooldownFill.style.width = '100%';
+          cooldownBar.classList.remove('cooldown-bar--cooling');
+          cooldownBarLabel.textContent = 'Ready to place';
+          _cooldownRafId = null;
+        }
+      };
+      _cooldownRafId = requestAnimationFrame(tick);
+    }
   } else {
     cooldownBar.classList.remove('cooldown-bar--cooling');
     cooldownBarLabel.textContent = 'Ready to place';
+    if (_cooldownRafId) { cancelAnimationFrame(_cooldownRafId); _cooldownRafId = null; }
   }
 }
 
@@ -470,8 +477,7 @@ function redraw() {
     const oy = offsetY;
     
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Keep pixels crisp at any zoom level
     ctx.imageSmoothingEnabled = false;
@@ -485,8 +491,38 @@ function redraw() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(ox, oy, boardW, boardH);
 
-    // Draw the pixel art buffer natively scaled to integer bounds
-    ctx.drawImage(bufferCanvas, 0, 0, BOARD_WIDTH, BOARD_HEIGHT, ox, oy, boardW, boardH);
+    // ── Occlusion culling ──────────────────────────────────────────────
+    // Compute the visible board region in board-pixel coordinates so we
+    // only blit the portion of the buffer that's actually on screen.
+    const vpW_css = canvas.width / dpr;
+    const vpH_css = canvas.height / dpr;
+
+    // Board rect in viewport-CSS pixels
+    const bLeft   = ox;
+    const bTop    = oy;
+    const bRight  = ox + boardW;
+    const bBottom = oy + boardH;
+
+    // Visible intersection (viewport is 0,0 → vpW,vpH)
+    const visL = Math.max(0, bLeft);
+    const visT = Math.max(0, bTop);
+    const visR = Math.min(vpW_css, bRight);
+    const visB = Math.min(vpH_css, bBottom);
+
+    if (visR > visL && visB > visT) {
+      // Map the visible screen rect back to source board-pixel coords
+      const srcX = (visL - ox) / scale;
+      const srcY = (visT - oy) / scale;
+      const srcW = (visR - visL) / scale;
+      const srcH = (visB - visT) / scale;
+
+      // Draw only the visible slice — skip off-screen pixels entirely
+      ctx.drawImage(
+        bufferCanvas,
+        srcX, srcY, srcW, srcH,
+        visL, visT, visR - visL, visB - visT
+      );
+    }
 
     // Redraw grid only when scale/offset changed — grid lives on its own canvas
     drawGridIfDirty();
@@ -773,7 +809,10 @@ function placeFromKeyboard() {
 }
 
 function updateStatus(x, y) {
-  coordLabel.textContent = `${x}, ${y}`;
+  const txt = `${x}, ${y}`;
+  coordLabel.textContent = txt;
+  const topbarCoord = document.getElementById('coord-topbar');
+  if (topbarCoord) topbarCoord.textContent = txt;
 }
 
 function appendHistory(event) {
@@ -897,45 +936,75 @@ function showVariationPicker(button, baseColor) {
 
   const picker = document.createElement('div');
   picker.className = 'variation-picker';
-  picker.style.cssText = `
-    position: fixed; z-index: 9999;
-    display: flex; gap: 6px; padding: 8px;
-    background: rgba(15,18,25,0.97);
-    border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  `;
+  picker.style.cssText = [
+    'position:fixed', 'z-index:99999',
+    'display:flex', 'gap:6px', 'padding:8px',
+    'background:rgba(15,18,25,0.97)',
+    'border:1px solid rgba(255,255,255,0.14)',
+    'border-radius:12px',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.5)',
+    'touch-action:none',
+  ].join(';');
 
-  variants.forEach((hex, i) => {
+  // Shared cleanup — always removes the outside listeners
+  function cleanupOutside() {
+    document.removeEventListener('touchstart', onOutside, true);
+    document.removeEventListener('mousedown',  onOutside, true);
+  }
+
+  variants.forEach(function(hex, i) {
     const swatch = document.createElement('button');
     swatch.className = 'variation-swatch';
-    swatch.style.cssText = `
-      width: ${i === 2 ? '36px' : '28px'};
-      height: ${i === 2 ? '36px' : '28px'};
-      border-radius: 6px; background: ${hex};
-      border: ${i === 2 ? '2px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.2)'};
-      cursor: pointer; flex-shrink: 0;
-    `;
+    const sz = i === 2 ? '36px' : '28px';
+    const bd = i === 2 ? '2px solid rgba(255,255,255,0.5)' : '1px solid rgba(255,255,255,0.2)';
+    swatch.style.cssText = 'width:' + sz + ';height:' + sz + ';border-radius:6px;background:' + hex + ';border:' + bd + ';cursor:pointer;flex-shrink:0;-webkit-tap-highlight-color:transparent;';
     swatch.title = hex.toUpperCase();
-    swatch.addEventListener('click', (e) => {
+
+    function applyHex(e) {
+      e.preventDefault();
       e.stopPropagation();
+      // Update paletteColors array with the new hex
+      const entryIdx = paletteColors.findIndex(p => normalizeHexColor(p.color) === normalizeHexColor(baseColor));
+      if (entryIdx !== -1) {
+        paletteColors[entryIdx].color = hex;
+        paletteColors[entryIdx].label = hex;
+      }
       setColor(hex);
       removeVariationPicker();
-    });
+      cleanupOutside();
+      // Rebuild both palette copies so all buttons are fresh with the new color
+      renderPalette();
+    }
+    swatch.addEventListener('click', applyHex);
+    swatch.addEventListener('touchend', applyHex, { passive: false });
     picker.appendChild(swatch);
   });
 
   document.body.appendChild(picker);
+
   const rect = button.getBoundingClientRect();
-  const pw = picker.offsetWidth;
+  const pw = picker.offsetWidth || 220;
+  const ph = picker.offsetHeight || 52;
   let left = rect.left + rect.width / 2 - pw / 2;
   left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
-  picker.style.left = `${left}px`;
-  picker.style.top  = `${rect.bottom + 6}px`;
+  const spaceBelow = window.innerHeight - rect.bottom - 10;
+  const top = spaceBelow >= ph ? rect.bottom + 6 : rect.top - ph - 6;
+  picker.style.left = left + 'px';
+  picker.style.top  = Math.max(8, top) + 'px';
 
-  setTimeout(() => {
-    document.addEventListener('click', removeVariationPicker, { once: true });
-  }, 0);
+  // Dismiss on outside touch/click — 200ms grace so the opening touch
+  // does not immediately close the picker
+  let dismissReady = false;
+  setTimeout(function() { dismissReady = true; }, 200);
+
+  function onOutside(e) {
+    if (!dismissReady) return;
+    if (picker.contains(e.target)) return;
+    removeVariationPicker();
+    cleanupOutside();
+  }
+  document.addEventListener('touchstart', onOutside, { capture: true, passive: true });
+  document.addEventListener('mousedown',  onOutside, { capture: true });
 }
 
 function createPaletteButton(entry) {
@@ -947,7 +1016,13 @@ function createPaletteButton(entry) {
     button.classList.add('selected');
   }
 
+  // Touch double-tap state — declared here so both click and touchend share the same variable
+  let _tapTimer = null;
+  let _tapCount = 0;
+  let _suppressNextClick = false;
+
   button.addEventListener('click', () => {
+    if (_suppressNextClick) { _suppressNextClick = false; return; }
     setColor(entry.color);
   });
 
@@ -956,8 +1031,42 @@ function createPaletteButton(entry) {
     showVariationPicker(button, entry.color);
   });
 
+  // Touch double-tap for variation picker on mobile
+  button.addEventListener('touchend', (e) => {
+    _tapCount++;
+    if (_tapCount === 1) {
+      _tapTimer = setTimeout(() => { _tapCount = 0; }, 350);
+    } else if (_tapCount >= 2) {
+      clearTimeout(_tapTimer);
+      _tapCount = 0;
+      e.preventDefault();
+      e.stopPropagation();
+      _suppressNextClick = true;
+      // Reset suppress after a short delay in case no click fires (touchend only)
+      setTimeout(() => { _suppressNextClick = false; }, 600);
+      showVariationPicker(button, entry.color);
+    }
+  }, { passive: false });
+
+  // Prevent long-press from removing color on mobile (contextmenu fires on long-press)
+  let _longPressTimer = null;
+  button.addEventListener('touchstart', (e) => {
+    _longPressTimer = setTimeout(() => {
+      // On mobile long-press: do nothing (don't remove the color)
+      _longPressTimer = null;
+    }, 500);
+  }, { passive: true });
+  button.addEventListener('touchend', () => {
+    if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+  });
+  button.addEventListener('touchmove', () => {
+    if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+  });
+
   button.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    // Only remove on desktop (non-touch) right-click
+    if (e.pointerType === 'touch' || window.matchMedia('(pointer: coarse)').matches) return;
     const idx = paletteColors.findIndex(p => normalizeHexColor(p.color) === normalizeHexColor(entry.color));
     if (idx !== -1) {
       paletteColors.splice(idx, 1);
@@ -1479,7 +1588,6 @@ window.addEventListener('load', () => {
   setInterval(registerClientHeartbeat, CLIENT_HEARTBEAT_MS);
   replayHistory();
   updateCooldownLabel();
-  setInterval(updateCooldownLabel, 250);
 });
 
 (function () {
@@ -1568,6 +1676,50 @@ function moveColorFocus(dx, dy) {
   }
 }
 
+
+// --- TOPBAR DRAG LOGIC ---
+// Uses scrollLeft instead of transform so the header never shrinks away
+// from the right edge (which exposed the background behind it).
+(function () {
+  const header = document.querySelector('header.flex');
+  const handle = document.getElementById('topbar-drag-handle');
+  if (!header || !handle) return;
+
+  let dragging = false;
+  let startClientX = 0;
+  let startScrollLeft = 0;
+
+  function onDown(e) {
+    dragging = true;
+    startClientX = e.touches ? e.touches[0].clientX : e.clientX;
+    startScrollLeft = header.scrollLeft;
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  }
+
+  function onMove(e) {
+    if (!dragging) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    // drag left = positive delta = scroll right into overflow
+    const delta = startClientX - clientX;
+    header.scrollLeft = Math.max(0, startScrollLeft + delta);
+  }
+
+  function onUp() {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = '';
+  }
+
+  handle.addEventListener('mousedown',  onDown, { passive: false });
+  handle.addEventListener('touchstart', onDown, { passive: false });
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('touchmove', onMove, { passive: false });
+  document.addEventListener('mouseup',  onUp);
+  document.addEventListener('touchend', onUp);
+  window.addEventListener('resize', () => { header.scrollLeft = 0; });
+})();
+
 // --- FULLSCREEN LOGIC ---
 const fullscreenBtn = document.getElementById('fullscreen-btn');
 const fsIconEnter = document.getElementById('fs-icon-enter');
@@ -1627,6 +1779,8 @@ let lastTouchDistance = 0;
 let isTouchDragging = false;
 let lastTouchX = 0;
 let lastTouchY = 0;
+/** True while a single-finger touch pan is actively moving — suppresses cursor overlay redraws. */
+let isTouchPanning = false;
 
 /** True when a touch started on a UI control (palette, toolbar, etc.) — suppresses tap-to-place. */
 let touchStartedOnUI = false;
@@ -1669,6 +1823,7 @@ viewport.addEventListener("touchmove", (e) => {
     // Threshold to prevent jittering taps
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
       isTouchDragging = true;
+      isTouchPanning = true;
     }
 
     // Round at write time so offsetX/Y are always whole numbers.
@@ -1680,7 +1835,36 @@ viewport.addEventListener("touchmove", (e) => {
     lastTouchY = e.touches[0].clientY;
 
     clampOffsets();
-    redraw();
+    // Skip full redraw (which redraws cursor overlay) while panning for perf;
+    // only redraw the canvas + grid layers directly.
+    if (isTouchPanning) {
+      // Lightweight pan-only redraw: skip overlay cursor
+      if (!isRedrawPending) {
+        isRedrawPending = true;
+        requestAnimationFrame(() => {
+          isRedrawPending = false;
+          clampOffsets();
+          const dpr = window.devicePixelRatio || 1;
+          const vpW = canvas.width / dpr;
+          const vpH = canvas.height / dpr;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx.clearRect(0, 0, vpW, vpH);
+          ctx.save();
+          ctx.setTransform(dpr * scale, 0, 0, dpr * scale, Math.round(offsetX * dpr), Math.round(offsetY * dpr));
+          // Draw white board background first
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+          ctx.drawImage(bufferCanvas, 0, 0);
+          ctx.restore();
+          drawGridIfDirty();
+          // Clear overlay during pan (no cursor shown while panning)
+          overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+          overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        });
+      }
+    } else {
+      redraw();
+    }
   } else if (e.touches.length === 2) {
     const dx = e.touches[0].clientX - e.touches[1].clientX;
     const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1728,6 +1912,13 @@ viewport.addEventListener("touchend", (e) => {
     lastTouchY = e.touches[0].clientY;
     isTouchDragging = true; // Mark as dragging so it doesn't accidentally drop a pixel
   }
+
+  // Finger lifted — stop suppressing cursor overlay
+  if (e.touches.length === 0) {
+    isTouchPanning = false;
+    // Full redraw to restore cursor overlay now that panning stopped
+    redraw();
+  }
   
   // TAP TO PLACE: If it was 1 finger, it ended, didn't drag, and started on the canvas (not a palette/UI tap)
   if (!isTouchDragging && !touchStartedOnUI && e.changedTouches.length === 1 && e.touches.length === 0) {
@@ -1736,3 +1927,5 @@ viewport.addEventListener("touchend", (e) => {
      applyToolAtCell(coords.x, coords.y);
   }
 });
+
+}); // end DOMContentLoaded

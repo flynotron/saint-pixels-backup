@@ -34,7 +34,7 @@
 
 #canvas  { z-index: 1; }
 #grid    { z-index: 2; pointer-events: none; }
-#overlay { z-index: 3; pointer-events: none; }
+#overlay { z-index: 3; pointer-events: none; will-change: contents; contain: strict; }
 
 /* ── Tool / button active states (toggled by JS) ───────────── */
 .toggle-btn.active,
@@ -135,6 +135,42 @@ canvas.shift-pan { cursor: grab !important; }
   z-index: 2;
 }
 
+/* ── Hide tools & palette when auth overlay is open ─────────── */
+body.auth-open aside,
+body.auth-open .canvas-toolbar,
+body.auth-open .footer-panel {
+  visibility: hidden;
+  pointer-events: none !important;
+}
+body.auth-open .tool-list,
+body.auth-open .color-picker,
+body.auth-open .fullscreen-palette,
+body.auth-open .cooldown-bar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── Topbar drag handle ──────────────────────────────────────── */
+.topbar-drag-handle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: ew-resize;
+  padding: 4px 10px;
+  border-radius: 8px;
+  opacity: 0.38;
+  transition: opacity 0.15s, background 0.15s;
+  user-select: none;
+  flex-shrink: 0;
+  touch-action: none;
+  align-self: stretch;
+}
+.topbar-drag-handle:hover { opacity: 0.88; background: rgba(255,255,255,0.07); }
+
+header.flex { will-change: transform; }
+
 /* ── Variation picker popup ────────────────────────────────── */
 .variation-picker {
   border: 1px solid rgba(255,255,255,0.14);
@@ -157,7 +193,10 @@ canvas.shift-pan { cursor: grab !important; }
   z-index: 1;
 }
 
-/* ── Spawn number input — hide spin buttons ────────────────── */
+/* Coords chip — hidden on desktop, shown on mobile */
+.mob-coords-chip { display: none !important; }
+/* Toolbox spacer in palette — hidden on desktop */
+.palette-toolbox-spacer { display: none !important; }
 .spawn-container input[type="number"]::-webkit-inner-spin-button { display: none; }
 
 /* ══════════════════════════════════════════════════════════════
@@ -173,9 +212,9 @@ canvas.shift-pan { cursor: grab !important; }
     --mob-topbar-h: 48px;
     --mob-toolbar-h: 40px;
     --mob-top-total: 88px;
-    --mob-palette-h: 46px;
+    --mob-palette-h: 58px;
     --mob-spawn-h:   48px;
-    --mob-bottom-total: 94px;
+    --mob-bottom-total: 106px;
   }
 
   html, body {
@@ -232,8 +271,8 @@ canvas.shift-pan { cursor: grab !important; }
     scrollbar-width: none;
     padding: 0 50px 0 max(8px, env(safe-area-inset-left));
     border-radius: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    background: rgba(16,22,30,0.97);
+    border-bottom: 1px solid rgba(27, 27, 27, 0.08);
+    background: rgba(47, 47, 48, 0.98);
     backdrop-filter: blur(16px);
     box-shadow: none;
     min-height: unset;
@@ -272,6 +311,11 @@ canvas.shift-pan { cursor: grab !important; }
   [role="group"] > div:nth-child(2) { display: none !important; }
   #logoutButton { display: none !important; }
 
+  /* Show the coords chip on mobile */
+  .mob-coords-chip { display: inline-flex !important; }
+  /* Show toolbox spacer on mobile */
+  .palette-toolbox-spacer { display: block !important; }
+
   /* Color picker — fixed circle at topbar right */
   .color-picker {
     position: fixed;
@@ -302,7 +346,7 @@ canvas.shift-pan { cursor: grab !important; }
     scrollbar-width: none;
     padding: 5px 8px;
     gap: 7px;
-    background: rgba(12,17,25,0.97);
+    background: rgba(47, 47, 48, 0.98);
     border-bottom: 1px solid rgba(255,255,255,0.06);
     border-radius: 0;
   }
@@ -313,14 +357,7 @@ canvas.shift-pan { cursor: grab !important; }
   .canvas-toolbar .toggle-btn,
   .canvas-toolbar .accent { padding: 3px 9px; border-radius: 8px; font-size: 0.75rem; line-height: 1.4; }
 
-  .canvas-info {
-    display: inline-flex !important;
-    gap: 6px;
-    font-size: 0.7rem;
-    color: var(--muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+  .canvas-info { display: none !important; }
 
   /* Canvas section */
   section.flex-col {
@@ -331,7 +368,7 @@ canvas.shift-pan { cursor: grab !important; }
     padding: 0;
     border-radius: 0;
     border: none;
-    background: #0f172a;
+    background: #1a1a1b;
     overflow: hidden;
     flex-direction: column;
     gap: 0;
@@ -345,7 +382,7 @@ canvas.shift-pan { cursor: grab !important; }
     overflow: hidden;
     border: none;
     border-radius: 0;
-    background: #0f172a;
+    background: #1a1a1b;
     display: flex;
   }
 
@@ -401,31 +438,34 @@ canvas.shift-pan { cursor: grab !important; }
     justify-content: center !important;
   }
 
-  /* Tool list — floating glass column, bottom-left */
+  /* Tool list — attached to the left edge of the palette */
   .tool-list {
     position: fixed !important;
-    bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 6px) !important;
-    left: 8px !important;
+    bottom: calc(var(--mob-spawn-h) + var(--mob-palette-h) + env(safe-area-inset-bottom, 0px)) !important;
+    left: 0 !important;
     top: auto !important;
     transform: none !important;
-    height: auto !important;
+    height: 80 !important;
     width: auto !important;
     z-index: 260 !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 6px !important;
-    padding: 6px !important;
-    background: rgba(10,14,22,0.55) !important;
-    backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(255,255,255,0.10) !important;
-    border-radius: 14px !important;
+    padding: 8px 6px !important;
+    background: rgb(47, 47, 48) !important;
+    backdrop-filter: none !important;
+    border-top: 1px solid rgba(255,255,255,0.08) !important;
+    border-left: none !important;
+    border-right: 1px solid rgba(255,255,255,0.08) !important;
+    border-bottom: none !important;
+    border-radius: 0 14px 0 0 !important;
     align-items: center !important;
     justify-content: center !important;
     grid-template-columns: unset !important;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+    box-shadow: none !important;
   }
 
-  /* Only brush + eraser visible on mobile */
+  /* Only eyedropper + hand hidden on mobile; none stays visible */
   .tool--secondary[data-tool="eyedropper"],
   .tool--secondary[data-tool="hand"] { display: none !important; }
 
@@ -436,8 +476,8 @@ canvas.shift-pan { cursor: grab !important; }
     min-height: unset !important;
     font-size: 0 !important;
     border-radius: 10px !important;
-    background: rgba(255,255,255,0.08) !important;
-    border: 1px solid rgba(255,255,255,0.14) !important;
+    background: transparent !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -447,8 +487,9 @@ canvas.shift-pan { cursor: grab !important; }
   }
   .tool--secondary[data-tool="brush"]::after  { content: "✏️"; font-size: 1.1rem; }
   .tool--secondary[data-tool="eraser"]::after { content: "⬜"; font-size: 1.0rem; }
+  .tool--secondary[data-tool="none"]::after   { content: "🚫"; font-size: 1.1rem; }
   .tool--secondary.active {
-    background: rgba(56,189,248,0.35) !important;
+    background: rgba(56,189,248,0.25) !important;
     border-color: rgba(56,189,248,0.9) !important;
     box-shadow: 0 0 0 1px rgba(56,189,248,0.4) !important;
   }
@@ -460,7 +501,7 @@ canvas.shift-pan { cursor: grab !important; }
     bottom: calc(var(--mob-spawn-h) + env(safe-area-inset-bottom, 0px)) !important;
     left: 0 !important;
     right: 0 !important;
-    top: auto !important;
+    top: 603.5px !important;
     transform: none !important;
     height: var(--mob-palette-h) !important;
     flex-direction: row !important;
@@ -470,12 +511,11 @@ canvas.shift-pan { cursor: grab !important; }
     scrollbar-width: none;
     align-items: center;
     gap: 6px !important;
-    padding: 6px 12px !important;
+    padding: 6px 16px 6px 16px !important;
     border-radius: 0 !important;
     border: none !important;
-    border-top: 1px solid rgba(255,255,255,0.08) !important;
-    background: rgba(10,14,22,0.98) !important;
-    backdrop-filter: blur(10px);
+    background: rgb(47, 47, 48) !important;
+    backdrop-filter: none !important;
     z-index: 280 !important;
     box-shadow: none !important;
   }
@@ -483,14 +523,13 @@ canvas.shift-pan { cursor: grab !important; }
 
   .fullscreen-palette button {
     flex-shrink: 0 !important;
-    width: 24px !important;
-    height: 24px !important;
-    border-radius: 5px !important;
-    border: 1px solid rgba(255,255,255,0.12) !important;
+    width: 28.5px !important;
+    height: 28.5px !important;
+    border-radius: 6px !important;
+    border: 1px solid rgba(49, 49, 49, 0.12) !important;
   }
   .fullscreen-palette button.selected {
-    box-shadow: 0 0 0 2px #38bdf8 !important;
-    transform: scale(1.14) !important;
+    box-shadow: 0 0 0 2px #38bdf8, 0 0 0 4px rgba(56,189,248,0.25) !important;
   }
 
   /* Spawn bar */
@@ -509,18 +548,20 @@ canvas.shift-pan { cursor: grab !important; }
     align-items: center;
     padding: 0 10px;
     gap: 6px;
-    background: rgba(8,12,20,0.98);
-    border-top: 1px solid rgba(255,255,255,0.07);
+    background: rgba(47, 47, 48, 0.98);
+    border-top: 1px solid rgba(29, 28, 28, 0.07);
     z-index: 290;
   }
   .footer-panel::-webkit-scrollbar { display: none; }
 
-  .spawn-container {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 5px;
-    white-space: nowrap;
+  .spawn-container input[type="number"] {
+    width: 50px;
+    font-size: 0.78rem;
+    padding: 5px 6px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 7px;
+    color: var(--text);
   }
 
   .spawn-container > span:first-child,
