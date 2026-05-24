@@ -10,8 +10,9 @@ function initializeActions(app, db) {
   PlacePixel.setDb(db);
   Leaderboard.setDb(db);
 
-  app.post('/api/pixel',       PlacePixel.execute);
-  app.get('/api/leaderboard',  Leaderboard.execute);
+  app.post('/api/pixel',              PlacePixel.execute);
+  app.get('/api/leaderboard',         Leaderboard.execute);
+  app.get('/api/profile/:username',   Leaderboard.profile);
 }
 
 module.exports = { initializeActions };

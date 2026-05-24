@@ -24,6 +24,18 @@ function initializeDatabase(db) {
       count INTEGER NOT NULL DEFAULT 0,
       UNIQUE(username, day)
     );
+
+    CREATE TABLE IF NOT EXISTS pixels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL,
+      x INTEGER NOT NULL,
+      y INTEGER NOT NULL,
+      color TEXT NOT NULL,
+      placed_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pixels_username ON pixels(username);
+    CREATE INDEX IF NOT EXISTS idx_pixels_placed_at ON pixels(placed_at);
   `);
 
   try {

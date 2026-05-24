@@ -15,8 +15,8 @@
       theme: {
         extend: {
           colors: {
-            surface: '#19232f',
-            'surface-2': '#1f2d3a',
+            surface: '#2e2e2f',
+            'surface-2': '#383839',
             accent: '#38bdf8',
           }
         }
@@ -25,7 +25,7 @@
   </script>
 </head>
 <body
-  class="h-screen overflow-hidden text-slate-100 font-sans flex items-stretch" style="background:#1a1a1b;"
+  class="h-screen overflow-hidden text-slate-100 font-sans flex items-stretch" style="background:#2e2e2f;"
   x-data="{
     currentUser: null,
     currentTool: 'Brush',
@@ -50,7 +50,7 @@
     x-show="!currentUser"
     x-cloak
   >
-    <div class="w-[min(420px,calc(100%-40px))] p-7 rounded-3xl bg-[#121214] border border-white/10 shadow-2xl grid gap-4 transition-all">
+    <div class="w-[min(420px,calc(100%-40px))] p-7 rounded-3xl bg-[#2e2e2f] border border-white/10 shadow-2xl grid gap-4 transition-all">
       <h2 class="text-2xl font-bold m-0">Saint-Pixels</h2>
       <p class="m-0 text-slate-400">Login or create an account to place pixels on the live board.</p>
 
@@ -94,7 +94,7 @@
   <div class="w-full flex flex-col h-screen overflow-hidden px-6 py-5">
 
     <!-- TOPBAR -->
-    <header class="flex flex-nowrap gap-3 justify-between items-center px-4 py-2.5 border border-white/10 rounded-3xl bg-[rgba(47,47,48,0.98)] shadow-xl overflow-x-auto overflow-y-hidden scrollbar-thin min-h-[54px] shrink-0">
+    <header class="flex flex-nowrap gap-3 justify-between items-center px-4 py-2.5 border border-white/10 rounded-3xl bg-[rgba(58,58,59,0.98)] shadow-xl overflow-x-auto overflow-y-hidden scrollbar-thin min-h-[54px] shrink-0">
 
       <!-- Brand -->
       <div class="flex flex-row flex-nowrap items-baseline gap-1.5 shrink-0 min-w-0">
@@ -196,10 +196,6 @@
           <div class="mt-2.5">
             <button id="add-color" class="w-full px-3.5 py-2.5 rounded-xl border border-white/10 bg-white/5 text-white hover:bg-sky-400/25 hover:border-sky-400/80 transition-colors hidden">+ Add color</button>
           </div>
-          <div class="grid gap-2 mt-2.5 color-picker">
-            <input id="color" type="color" value="#000000" title="Custom color"
-              class="w-full aspect-square rounded-2xl border border-white/10 cursor-pointer" />
-          </div>
         </section>
 
         <!-- Help -->
@@ -222,7 +218,7 @@
       </aside>
 
       <!-- CANVAS PANEL -->
-      <section class="flex flex-col gap-2.5 p-4 border border-white/10 rounded-3xl bg-[rgba(47,47,48,0.98)] shadow-xl overflow-hidden min-h-0">
+      <section class="flex flex-col gap-2.5 p-4 border border-white/10 rounded-3xl bg-[rgba(58,58,59,0.98)] shadow-xl overflow-hidden min-h-0">
 
         <!-- Canvas toolbar -->
         <div class="flex flex-wrap items-center gap-2.5 canvas-toolbar">
@@ -242,7 +238,7 @@
 
         <!-- Viewport wrapper -->
         <div class="viewport-wrapper w-full flex-1 min-h-0 border border-white/10 overflow-hidden relative flex"
-          style="background-color:#1a1a1b;background-image:radial-gradient(circle,rgba(255,255,255,0.12) 1px,transparent 1px);background-size:24px 24px;">
+          style="background-color:#2e2e2f;background-image:radial-gradient(circle,rgba(255,255,255,0.12) 1px,transparent 1px);background-size:24px 24px;">
 
           <div class="viewport w-full h-full relative" id="viewport">
             <canvas id="canvas"></canvas>
@@ -295,30 +291,87 @@
   </div>
 
   <script src="app.js" defer></script>
+</body>
+</html>
+  <div id="lb-panel" class="lb-panel" aria-label="Leaderboard" role="complementary">
 
-  <!-- ══════════════════ LEADERBOARD PANEL ══════════════════ -->
-  <div id="lb-panel" class="lb-panel" aria-label="Daily Leaderboard" role="complementary">
-
-    <!-- Body (order:1 in CSS) -->
+    <!-- Body -->
     <div class="lb-body">
+
+      <!-- Profile strip -->
+      <div class="lb-profile" id="lb-profile-strip" title="View your profile">
+        <div class="lb-profile-avatar" id="lb-profile-avatar">?</div>
+        <div class="lb-profile-info">
+          <div class="lb-profile-name" id="lb-profile-name">Not logged in</div>
+          <div class="lb-profile-sub" id="lb-profile-sub">Sign in to track pixels</div>
+        </div>
+        <svg class="lb-profile-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9,5 16,12 9,19"/>
+        </svg>
+      </div>
+
+      <!-- Leaderboard header -->
       <div class="lb-header">
         <span class="lb-title">🏆 Leaderboard</span>
         <span id="lb-date" class="lb-date"></span>
       </div>
+
+      <!-- Period filters -->
+      <div class="lb-filters" id="lb-filters">
+        <button class="lb-filter-btn lb-filter-active" data-period="today">Today</button>
+        <button class="lb-filter-btn" data-period="week">Week</button>
+        <button class="lb-filter-btn" data-period="month">Month</button>
+        <button class="lb-filter-btn" data-period="year">Year</button>
+        <button class="lb-filter-btn" data-period="decade">Decade</button>
+        <button class="lb-filter-btn" data-period="alltime">All Time</button>
+      </div>
+
       <ol id="lb-list" class="lb-list">
         <li class="lb-loading">Loading…</li>
       </ol>
-      <p class="lb-reset-note">Resets at midnight · UTC−4</p>
+
+      <p class="lb-reset-note" id="lb-reset-note">Today resets at midnight · UTC−4</p>
     </div>
 
-    <!-- Toggle tab (order:2 in CSS, sits on the right edge of the body) -->
+    <!-- Toggle tab -->
     <button id="lb-toggle" class="lb-toggle" aria-label="Toggle leaderboard" title="Leaderboard">
-      <!-- Single chevron-right; CSS rotates 180° when .lb-open -->
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="9,5 16,12 9,19"/>
       </svg>
     </button>
 
   </div>
-</body>
+
+  <div class="profile-modal-overlay" id="profile-modal-overlay">
+    <div class="profile-modal" id="profile-modal" role="dialog" aria-modal="true">
+      <div class="pm-header">
+        <div class="pm-avatar" id="pm-avatar">?</div>
+        <div>
+          <div class="pm-username" id="pm-username">—</div>
+          <div class="pm-sub" id="pm-sub">Loading…</div>
+        </div>
+      </div>
+      <div class="pm-stats" id="pm-stats">
+        <div class="pm-stat">
+          <span class="pm-stat-value" id="pm-total">—</span>
+          <span class="pm-stat-label">All Time</span>
+        </div>
+        <div class="pm-stat">
+          <span class="pm-stat-value" id="pm-today">—</span>
+          <span class="pm-stat-label">Today</span>
+        </div>
+        <div class="pm-stat">
+          <span class="pm-stat-value" id="pm-rank">—</span>
+          <span class="pm-stat-label">Rank</span>
+        </div>
+      </div>
+      <div>
+        <div class="pm-recent-title">Recent Pixels</div>
+        <div class="pm-recent-pixels" id="pm-recent-pixels">
+          <span class="pm-loading">Loading…</span>
+        </div>
+      </div>
+      <button class="pm-close" id="pm-close">Close</button>
+    </div>
+  </div>
 </html>

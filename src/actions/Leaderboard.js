@@ -11,29 +11,119 @@ function getDayUTC4() {
   return utc4.toISOString().slice(0, 10);
 }
 
+/**
+ * Build a WHERE clause fragment for filtering by time period.
+ * For pixel_counts table (day TEXT "YYYY-MM-DD").
+ * @param {'today'|'week'|'month'|'year'|'decade'|'alltime'} period
+ * @returns {{ clause: string, params: string[] }}
+ */
+function buildDateFilter(period) {
+  const now = new Date(Date.now() - 4 * 60 * 60 * 1000); // UTC-4
+  const today = now.toISOString().slice(0, 10);
+
+  if (period === 'today') {
+    return { clause: 'WHERE day = ?', params: [today] };
+  }
+  if (period === 'week') {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - 6);
+    const from = d.toISOString().slice(0, 10);
+    return { clause: 'WHERE day >= ?', params: [from] };
+  }
+  if (period === 'month') {
+    const from = today.slice(0, 7) + '-01';
+    return { clause: 'WHERE day >= ?', params: [from] };
+  }
+  if (period === 'year') {
+    const from = today.slice(0, 4) + '-01-01';
+    return { clause: 'WHERE day >= ?', params: [from] };
+  }
+  if (period === 'decade') {
+    const decadeStart = String(Math.floor(parseInt(today.slice(0, 4)) / 10) * 10) + '-01-01';
+    return { clause: 'WHERE day >= ?', params: [decadeStart] };
+  }
+  // alltime — no filter
+  return { clause: '', params: [] };
+}
+
 class Leaderboard {
   /**
-   * GET /api/leaderboard
-   * Returns the top 10 players for today (UTC-4 day boundary)
-   * @param {*} req
-   * @param {*} res
+   * GET /api/leaderboard?period=today|week|month|year|decade|alltime
+   * Returns the top 100 players for the selected period.
    */
   static execute(req, res) {
     if (!_db) return res.status(503).json({ error: 'Database not available' });
 
     try {
-      const day = getDayUTC4();
-      const rows = _db.prepare(`
-        SELECT username, count
-        FROM pixel_counts
-        WHERE day = ?
-        ORDER BY count DESC
-        LIMIT 10
-      `).all(day);
+      const period = ['today', 'week', 'month', 'year', 'decade', 'alltime'].includes(req.query.period)
+        ? req.query.period
+        : 'today';
 
-      return res.json({ day, leaderboard: rows });
+      const { clause, params } = buildDateFilter(period);
+
+      const rows = _db.prepare(`
+        SELECT username, SUM(count) AS count
+        FROM pixel_counts
+        ${clause}
+        GROUP BY username
+        ORDER BY count DESC
+        LIMIT 100
+      `).all(...params);
+
+      const day = getDayUTC4();
+      return res.json({ day, period, leaderboard: rows });
     } catch (err) {
       console.error('Failed to fetch leaderboard:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  /**
+   * GET /api/profile/:username
+   * Returns stats for a user: total pixels, today's pixels, rank, recent pixels.
+   */
+  static profile(req, res) {
+    if (!_db) return res.status(503).json({ error: 'Database not available' });
+
+    try {
+      const { username } = req.params;
+
+      const totalRow = _db.prepare(
+        'SELECT SUM(count) AS total FROM pixel_counts WHERE username = ?'
+      ).get(username);
+
+      const day = getDayUTC4();
+      const todayRow = _db.prepare(
+        'SELECT count FROM pixel_counts WHERE username = ? AND day = ?'
+      ).get(username, day);
+
+      // Global rank (all time)
+      const rankRows = _db.prepare(`
+        SELECT username, SUM(count) AS total
+        FROM pixel_counts
+        GROUP BY username
+        ORDER BY total DESC
+      `).all();
+      const rankIndex = rankRows.findIndex(r => r.username === username);
+      const rank = rankIndex === -1 ? null : rankIndex + 1;
+
+      // Last 20 pixels placed
+      const recentPixels = _db.prepare(`
+        SELECT x, y, color, placed_at FROM pixels
+        WHERE username = ?
+        ORDER BY placed_at DESC
+        LIMIT 20
+      `).all(username);
+
+      return res.json({
+        username,
+        totalPixels: totalRow?.total || 0,
+        todayPixels: todayRow?.count || 0,
+        allTimeRank: rank,
+        recentPixels,
+      });
+    } catch (err) {
+      console.error('Failed to fetch profile:', err);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }

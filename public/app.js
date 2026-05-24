@@ -247,6 +247,7 @@ function showAuthMessage(message, isError = true) {
 function setCurrentUser(username) {
   currentUser = username;
   dispatchStateChange({ currentUser: username });
+  document.body.classList.remove('auth-open');
   showAuthMessage(`Logged in as ${username}`, false);
   updateCooldownLabel();
 }
@@ -753,34 +754,42 @@ function applyToolAtCell(x, y) {
     const picked = pixel[3] === 0 ? '#000000' : rgbToHex(pixel[0], pixel[1], pixel[2]);
     const norm = normalizeHexColor(picked);
 
-    // Find the closest existing palette button by hue similarity and update it
-    // in-place (same as the variation picker does), rather than adding a new entry.
-    const paletteButtons = Array.from(
-      document.querySelectorAll('#palette button, #fullscreen-palette button')
-    );
+    // Find the closest existing palette entry by hue similarity and update it
+    // in-place, rather than adding a new entry.
     const [pH, pS] = hexToHsl(norm);
 
-    let bestBtn = null;
+    // Search paletteColors (source of truth) directly — avoids the dual-DOM
+    // problem where #palette and #fullscreen-palette are separate button sets.
+    let bestIdx = -1;
     let bestDist = Infinity;
-    paletteButtons.forEach(btn => {
-      const base = btn.dataset.baseColor || btn.dataset.color;
-      if (!base) return;
-      const [bH, bS] = hexToHsl(normalizeHexColor(base));
-      // Hue distance wraps around 360°
+    paletteColors.forEach((entry, i) => {
+      // Always compare against the canonical base color stored in paletteColors
+      const base = normalizeHexColor(entry.color);
+      const [bH, bS] = hexToHsl(base);
       const dH = Math.min(Math.abs(pH - bH), 360 - Math.abs(pH - bH));
-      // Weight saturation difference less — a grey pixel shouldn't hijack a vivid slot
       const dist = dH + Math.abs(pS - bS) * 0.3;
-      if (dist < bestDist) { bestDist = dist; bestBtn = btn; }
+      if (dist < bestDist) { bestDist = dist; bestIdx = i; }
     });
 
     // Only update in-place when the hue is genuinely close (within 30°); otherwise
     // fall back to adding a new entry so completely novel colors still get recorded.
     const HUE_THRESHOLD = 30;
-    if (bestBtn && bestDist <= HUE_THRESHOLD) {
-      bestBtn.style.background = norm;
-      bestBtn.dataset.color = norm;
-      bestBtn.title = norm.toUpperCase();
-      // dataset.baseColor intentionally NOT updated — keeps the hue family anchor
+    if (bestIdx !== -1 && bestDist <= HUE_THRESHOLD) {
+      // Update paletteColors (source of truth) first
+      paletteColors[bestIdx] = asPaletteEntry({ ...paletteColors[bestIdx], color: norm });
+      // Now sync ALL matching palette buttons in both #palette and #fullscreen-palette.
+      document.querySelectorAll('#palette button, #fullscreen-palette button').forEach(btn => {
+        const btnBase = btn.dataset.baseColor ? normalizeHexColor(btn.dataset.baseColor) : normalizeHexColor(btn.dataset.color);
+        const [btnH, btnS] = hexToHsl(btnBase);
+        const dH = Math.min(Math.abs(pH - btnH), 360 - Math.abs(pH - btnH));
+        const dist = dH + Math.abs(pS - btnS) * 0.3;
+        if (dist <= HUE_THRESHOLD) {
+          btn.style.background = norm;
+          btn.dataset.color = norm;
+          btn.title = norm.toUpperCase();
+          // dataset.baseColor intentionally NOT updated — keeps the hue family anchor
+        }
+      });
     } else {
       const alreadyIn = paletteColors.some(e => normalizeHexColor(e.color) === norm);
       if (!alreadyIn) {
@@ -866,6 +875,21 @@ function broadcastEvent(event) {
   localStorage.setItem(EVENT_KEY, JSON.stringify(event));
   if (event.type === 'pixel') {
     setTimeout(() => appendHistory(event), 0);
+
+    // Persist to server (leaderboard + pixel history)
+    const token = getStoredToken();
+    if (token && event.tool !== 'eraser') {
+      fetch('/api/pixel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ x: event.x, y: event.y, color: event.color })
+      }).then(() => {
+        window.dispatchEvent(new CustomEvent('sp-pixel-placed'));
+      }).catch(() => { /* fire-and-forget; local paint already happened */ });
+    }
   }
   if (event.type === 'clear') {
     setTimeout(() => localStorage.setItem(PIXEL_HISTORY_KEY, JSON.stringify([])), 0);
@@ -1067,7 +1091,19 @@ function createPaletteButton(entry) {
 
   button.addEventListener('click', () => {
     if (_suppressNextClick) { _suppressNextClick = false; return; }
-    setColor(button.dataset.color);
+    // Always activate from baseColor so a single tap resets any variation
+    // and the palette swatch reliably highlights the canonical slot color.
+    const canonical = normalizeHexColor(button.dataset.baseColor || button.dataset.color);
+    const current   = normalizeHexColor(button.dataset.color);
+    if (current !== canonical) {
+      // Restore DOM button to its base color
+      button.style.background = canonical;
+      button.dataset.color = canonical;
+      // Sync paletteColors so renderPalette() doesn't re-apply the variation
+      const pcIdx = paletteColors.findIndex(e => normalizeHexColor(e.color) === current);
+      if (pcIdx !== -1) paletteColors[pcIdx] = asPaletteEntry({ ...paletteColors[pcIdx], color: canonical });
+    }
+    setColor(canonical);
   });
 
   button.addEventListener('dblclick', (e) => {
@@ -1194,7 +1230,8 @@ function setColor(newColor) {
   applyColorSwatchStyles(norm);
 
   document.querySelectorAll('#palette button, #fullscreen-palette button').forEach(b => {
-    b.classList.toggle('selected', normalizeHexColor(b.dataset.color) === norm);
+    const btnColor = normalizeHexColor(b.dataset.color);
+    b.classList.toggle('selected', btnColor === norm);
   });
 
   // Redraw immediately so cursor preview color updates without waiting for mousemove
@@ -1606,6 +1643,9 @@ window.addEventListener('storage', event => {
     const remoteEvent = safeParse(event.newValue, null);
     if (remoteEvent) {
       handleRemoteEvent(remoteEvent);
+      if (remoteEvent.type === 'pixel') {
+        window.dispatchEvent(new CustomEvent('sp-pixel-placed'));
+      }
     }
   }
 
@@ -1973,62 +2013,167 @@ viewport.addEventListener("touchend", (e) => {
   }
 });
 
-// ─── LEADERBOARD ────────────────────────────────────────────────────────────
-// Fetches /api/leaderboard and renders results in the slide-in panel.
-// Auto-refreshes every 60 seconds. Resets at midnight UTC-4.
+// ─── LEADERBOARD + PROFILE ──────────────────────────────────────────────────
 (function initLeaderboard() {
-  const panel    = document.getElementById('lb-panel');
-  const toggle   = document.getElementById('lb-toggle');
-  const list     = document.getElementById('lb-list');
-  const dateEl   = document.getElementById('lb-date');
-  const arrowR   = document.getElementById('lb-arrow-right');
-  const arrowL   = document.getElementById('lb-arrow-left');
+  const panel        = document.getElementById('lb-panel');
+  const toggle       = document.getElementById('lb-toggle');
+  const list         = document.getElementById('lb-list');
+  const dateEl       = document.getElementById('lb-date');
+  const filtersEl    = document.getElementById('lb-filters');
+  const resetNote    = document.getElementById('lb-reset-note');
+  const profileStrip = document.getElementById('lb-profile-strip');
+  const profileAvatar= document.getElementById('lb-profile-avatar');
+  const profileName  = document.getElementById('lb-profile-name');
+  const profileSub   = document.getElementById('lb-profile-sub');
+
+  // Profile modal elements
+  const modalOverlay = document.getElementById('profile-modal-overlay');
+  const pmAvatar     = document.getElementById('pm-avatar');
+  const pmUsername   = document.getElementById('pm-username');
+  const pmSub        = document.getElementById('pm-sub');
+  const pmTotal      = document.getElementById('pm-total');
+  const pmToday      = document.getElementById('pm-today');
+  const pmRank       = document.getElementById('pm-rank');
+  const pmRecent     = document.getElementById('pm-recent-pixels');
+  const pmClose      = document.getElementById('pm-close');
 
   if (!panel || !toggle || !list) return;
 
   let isOpen = false;
+  let activePeriod = 'today';
+
+  // ── Period filter buttons ──────────────────────────────────
+  if (filtersEl) {
+    filtersEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.lb-filter-btn');
+      if (!btn) return;
+      filtersEl.querySelectorAll('.lb-filter-btn').forEach(b => b.classList.remove('lb-filter-active'));
+      btn.classList.add('lb-filter-active');
+      activePeriod = btn.dataset.period;
+
+      // Update reset note text
+      if (resetNote) {
+        resetNote.textContent = activePeriod === 'today'
+          ? 'Today resets at midnight · UTC−4'
+          : `Showing ${activePeriod === 'alltime' ? 'all-time' : activePeriod} totals`;
+      }
+
+      fetchLeaderboard();
+    });
+  }
 
   function closePanel() {
     isOpen = false;
     panel.classList.remove('lb-open');
-    arrowR.style.display = '';
-    arrowL.style.display = 'none';
   }
 
-  // Toggle open/close on arrow click
   toggle.addEventListener('click', () => {
     isOpen = !isOpen;
     panel.classList.toggle('lb-open', isOpen);
-    arrowR.style.display = isOpen ? 'none'  : '';
-    arrowL.style.display = isOpen ? ''      : 'none';
     if (isOpen) fetchLeaderboard();
   });
 
-  // Force-close when the user logs out (currentUser becomes null)
   window.addEventListener('sp-state-change', (e) => {
-    if (e.detail && e.detail.currentUser === null) closePanel();
+    if (e.detail && e.detail.currentUser !== undefined) {
+      updateProfileStrip(e.detail.currentUser);
+      if (e.detail.currentUser === null) closePanel();
+    }
   });
 
-  /** Format "YYYY-MM-DD" (UTC-4) for the date label */
+  // ── Profile strip update ────────────────────────────────────
+  function updateProfileStrip(username) {
+    if (!profileName || !profileAvatar || !profileSub) return;
+    if (!username) {
+      profileAvatar.textContent = '?';
+      profileName.textContent = 'Not logged in';
+      profileSub.textContent = 'Sign in to track pixels';
+      return;
+    }
+    profileAvatar.textContent = username.charAt(0);
+    profileName.textContent = username;
+    profileSub.textContent = 'Tap to view your profile';
+  }
+
+  // ── Profile modal ───────────────────────────────────────────
+  async function openProfileModal(username) {
+    if (!modalOverlay || !username) return;
+    pmAvatar.textContent = username.charAt(0);
+    pmUsername.textContent = username;
+    pmSub.textContent = 'Loading stats…';
+    pmTotal.textContent = '—';
+    pmToday.textContent = '—';
+    pmRank.textContent = '—';
+    pmRecent.innerHTML = '<span class="pm-loading">Loading…</span>';
+    modalOverlay.classList.add('pm-open');
+
+    try {
+      const res = await fetch(`/api/profile/${encodeURIComponent(username)}`);
+      if (!res.ok) throw new Error('Profile fetch failed');
+      const d = await res.json();
+      pmSub.textContent = `${(d.totalPixels || 0).toLocaleString()} pixels total`;
+      pmTotal.textContent = (d.totalPixels || 0).toLocaleString();
+      pmToday.textContent = (d.todayPixels || 0).toLocaleString();
+      pmRank.textContent = d.allTimeRank ? `#${d.allTimeRank}` : '—';
+
+      if (d.recentPixels && d.recentPixels.length > 0) {
+        pmRecent.innerHTML = d.recentPixels.map(p => {
+          const color = p.color || '#888';
+          return `<div class="pm-pixel-dot" style="background:${color};" title="(${p.x},${p.y}) ${color}"></div>`;
+        }).join('');
+      } else {
+        pmRecent.innerHTML = '<span style="color:#475569;font-size:0.82rem;font-style:italic;">No pixels placed yet.</span>';
+      }
+    } catch {
+      pmSub.textContent = 'Could not load profile.';
+    }
+  }
+
+  function closeProfileModal() {
+    if (modalOverlay) modalOverlay.classList.remove('pm-open');
+  }
+
+  if (profileStrip) {
+    profileStrip.addEventListener('click', () => {
+      if (currentUser) openProfileModal(currentUser);
+    });
+  }
+
+  if (pmClose) pmClose.addEventListener('click', closeProfileModal);
+  if (modalOverlay) {
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) closeProfileModal();
+    });
+  }
+
+  // Allow clicking a username in the leaderboard list to open their profile
+  if (list) {
+    list.addEventListener('click', (e) => {
+      const span = e.target.closest('.lb-username');
+      if (!span) return;
+      const username = span.dataset.username;
+      if (username) openProfileModal(username);
+    });
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────
   function todayUTC4() {
     const d = new Date(Date.now() - 4 * 60 * 60 * 1000);
     return d.toISOString().slice(0, 10);
   }
 
-  /** Milliseconds until next midnight UTC-4 */
   function msUntilMidnightUTC4() {
     const now = new Date();
     const utc4 = new Date(now.getTime() - 4 * 60 * 60 * 1000);
     const nextMidnight = new Date(utc4);
-    nextMidnight.setUTCHours(24, 0, 0, 0); // next UTC midnight = next UTC-4 midnight
+    nextMidnight.setUTCHours(24, 0, 0, 0);
     return nextMidnight.getTime() - utc4.getTime();
   }
 
-  /** Render the leaderboard rows */
+  // ── Render ───────────────────────────────────────────────────
   function render(rows) {
     dateEl.textContent = todayUTC4();
     if (!rows || rows.length === 0) {
-      list.innerHTML = '<li class="lb-empty">No pixels placed yet today.</li>';
+      list.innerHTML = '<li class="lb-empty">No pixels placed yet.</li>';
       return;
     }
 
@@ -2042,15 +2187,16 @@ viewport.addEventListener("touchend", (e) => {
       return `
         <li class="${isMe ? 'lb-me' : ''}">
           <span class="lb-rank ${rankCls}">${rankContent}</span>
-          <span class="lb-username" title="${row.username}">${row.username}</span>
-          <span class="lb-count">${row.count.toLocaleString()} px</span>
+          <span class="lb-username" data-username="${row.username}" title="View ${row.username}'s profile">${row.username}</span>
+          <span class="lb-count">${Number(row.count).toLocaleString()} px</span>
         </li>`;
     }).join('');
   }
 
   async function fetchLeaderboard() {
+    list.innerHTML = '<li class="lb-loading">Loading…</li>';
     try {
-      const res = await fetch('/api/leaderboard');
+      const res = await fetch(`/api/leaderboard?period=${activePeriod}`);
       if (!res.ok) throw new Error('Leaderboard fetch failed');
       const data = await res.json();
       render(data.leaderboard || []);
@@ -2059,17 +2205,21 @@ viewport.addEventListener("touchend", (e) => {
     }
   }
 
-  // Auto-refresh every 60 s
-  setInterval(() => {
-    if (isOpen) fetchLeaderboard();
-  }, 60_000);
+  // Auto-refresh every 10 s (only when open) — acts as a catch-all for
+  // players on other machines whose pixel events don't reach this tab via localStorage
+  setInterval(() => { if (isOpen) fetchLeaderboard(); }, 10_000);
 
-  // Schedule a forced refresh at the next UTC-4 midnight to reset the display
+  // Instant refresh whenever any pixel is placed (own tab or other tab on same machine)
+  window.addEventListener('sp-pixel-placed', () => {
+    if (isOpen) fetchLeaderboard();
+  });
+
+  // Scheduled reset at UTC-4 midnight
   function scheduleReset() {
     const delay = msUntilMidnightUTC4();
     setTimeout(() => {
       if (isOpen) fetchLeaderboard();
-      scheduleReset(); // reschedule for the next day
+      scheduleReset();
     }, delay);
   }
   scheduleReset();

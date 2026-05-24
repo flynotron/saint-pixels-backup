@@ -46,7 +46,20 @@ class PlacePixel {
       }
     }
 
-    // @TODO Implement storing the pixel in the database
+    // Store the pixel in the pixels history table
+    if (_db) {
+      try {
+        const { x, y, color } = req.body;
+        if (typeof x === 'number' && typeof y === 'number' && typeof color === 'string') {
+          _db.prepare(`
+            INSERT INTO pixels (username, x, y, color, placed_at)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(session.username, x, y, color.replace(/[^0-9a-fA-F#]/g, '').slice(0, 7), Date.now());
+        }
+      } catch (err) {
+        console.error('Failed to store pixel:', err);
+      }
+    }
 
     return res.json({ success: true });
   }
