@@ -16,7 +16,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 initializeDatabase(db);
-initializeActions(app);
+initializeActions(app, db);
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

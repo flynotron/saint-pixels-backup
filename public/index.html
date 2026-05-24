@@ -295,5 +295,30 @@
   </div>
 
   <script src="app.js" defer></script>
+
+  <!-- ══════════════════ LEADERBOARD PANEL ══════════════════ -->
+  <div id="lb-panel" class="lb-panel" aria-label="Daily Leaderboard" role="complementary">
+
+    <!-- Body (order:1 in CSS) -->
+    <div class="lb-body">
+      <div class="lb-header">
+        <span class="lb-title">🏆 Leaderboard</span>
+        <span id="lb-date" class="lb-date"></span>
+      </div>
+      <ol id="lb-list" class="lb-list">
+        <li class="lb-loading">Loading…</li>
+      </ol>
+      <p class="lb-reset-note">Resets at midnight · UTC−4</p>
+    </div>
+
+    <!-- Toggle tab (order:2 in CSS, sits on the right edge of the body) -->
+    <button id="lb-toggle" class="lb-toggle" aria-label="Toggle leaderboard" title="Leaderboard">
+      <!-- Single chevron-right; CSS rotates 180° when .lb-open -->
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9,5 16,12 9,19"/>
+      </svg>
+    </button>
+
+  </div>
 </body>
 </html>

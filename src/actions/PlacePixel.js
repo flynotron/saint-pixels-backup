@@ -1,6 +1,21 @@
 const { getCooldown, resetCooldown } = require('../helpers/cooldown.js');
 const { getSession } = require('../helpers/session.js');
 
+// Injected by initializeActions
+let _db = null;
+
+/**
+ * Returns the current day string in UTC-4 (e.g. "2025-05-23")
+ * The leaderboard resets at midnight UTC-4.
+ * @returns {string}
+ */
+function getDayUTC4() {
+  const now = new Date();
+  // Shift to UTC-4 by subtracting 4 hours worth of ms
+  const utc4 = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+  return utc4.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
 class PlacePixel {
   /**
    * @param {*} req 
@@ -17,9 +32,31 @@ class PlacePixel {
 
     resetCooldown(session.username);
 
+    // Increment this player's pixel count for today (UTC-4 day boundary)
+    if (_db) {
+      try {
+        const day = getDayUTC4();
+        _db.prepare(`
+          INSERT INTO pixel_counts (username, day, count)
+          VALUES (?, ?, 1)
+          ON CONFLICT(username, day) DO UPDATE SET count = count + 1
+        `).run(session.username, day);
+      } catch (err) {
+        console.error('Failed to update pixel count:', err);
+      }
+    }
+
     // @TODO Implement storing the pixel in the database
 
     return res.json({ success: true });
+  }
+
+  /**
+   * Inject the database instance (called from initializeActions)
+   * @param {Database} db
+   */
+  static setDb(db) {
+    _db = db;
   }
 }
 

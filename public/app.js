@@ -752,18 +752,45 @@ function applyToolAtCell(x, y) {
     const pixel = bufferCtx.getImageData(x, y, 1, 1).data;
     const picked = pixel[3] === 0 ? '#000000' : rgbToHex(pixel[0], pixel[1], pixel[2]);
     const norm = normalizeHexColor(picked);
-    const alreadyIn = paletteColors.some(e => normalizeHexColor(e.color) === norm);
-    if (!alreadyIn) {
-      // Replace the currently selected color in-place
-      const currentIdx = paletteColors.findIndex(p => normalizeHexColor(p.color) === normalizeHexColor(color));
-      if (currentIdx !== -1) {
-        paletteColors[currentIdx] = asPaletteEntry({ id: paletteColors[currentIdx].id, label: norm, color: norm });
-      } else {
+
+    // Find the closest existing palette button by hue similarity and update it
+    // in-place (same as the variation picker does), rather than adding a new entry.
+    const paletteButtons = Array.from(
+      document.querySelectorAll('#palette button, #fullscreen-palette button')
+    );
+    const [pH, pS] = hexToHsl(norm);
+
+    let bestBtn = null;
+    let bestDist = Infinity;
+    paletteButtons.forEach(btn => {
+      const base = btn.dataset.baseColor || btn.dataset.color;
+      if (!base) return;
+      const [bH, bS] = hexToHsl(normalizeHexColor(base));
+      // Hue distance wraps around 360°
+      const dH = Math.min(Math.abs(pH - bH), 360 - Math.abs(pH - bH));
+      // Weight saturation difference less — a grey pixel shouldn't hijack a vivid slot
+      const dist = dH + Math.abs(pS - bS) * 0.3;
+      if (dist < bestDist) { bestDist = dist; bestBtn = btn; }
+    });
+
+    // Only update in-place when the hue is genuinely close (within 30°); otherwise
+    // fall back to adding a new entry so completely novel colors still get recorded.
+    const HUE_THRESHOLD = 30;
+    if (bestBtn && bestDist <= HUE_THRESHOLD) {
+      bestBtn.style.background = norm;
+      bestBtn.dataset.color = norm;
+      bestBtn.title = norm.toUpperCase();
+      // dataset.baseColor intentionally NOT updated — keeps the hue family anchor
+    } else {
+      const alreadyIn = paletteColors.some(e => normalizeHexColor(e.color) === norm);
+      if (!alreadyIn) {
         paletteColors.push(asPaletteEntry({ id: null, label: norm, color: norm }));
+        renderPalette();
       }
-      renderPalette();
     }
+
     setColor(norm);
+    setTool('brush');
     redraw();
     return;
   }
@@ -950,7 +977,7 @@ function showVariationPicker(button, baseColor) {
   picker.style.cssText = [
     'position:fixed', 'z-index:99999',
     'display:flex', 'gap:6px', 'padding:8px',
-    'background:rgba(15,18,25,0.97)',
+    'background:rgba(47,47,48,0.98)',
     'border:1px solid rgba(255,255,255,0.14)',
     'border-radius:12px',
     'box-shadow:0 8px 32px rgba(0,0,0,0.5)',
@@ -975,16 +1002,15 @@ function showVariationPicker(button, baseColor) {
       e.preventDefault();
       e.stopPropagation();
       const normHex = normalizeHexColor(hex);
-      const alreadyIn = paletteColors.some(p => normalizeHexColor(p.color) === normHex);
-      if (!alreadyIn) {
-        // Replace the base color entry in-place so the shade sits in the same slot
-        const baseIdx = paletteColors.findIndex(p => normalizeHexColor(p.color) === normalizeHexColor(baseColor));
-        if (baseIdx !== -1) {
-          paletteColors[baseIdx] = asPaletteEntry({ id: paletteColors[baseIdx].id, label: normHex, color: normHex });
-        } else {
-          paletteColors.push(asPaletteEntry({ id: null, label: normHex, color: normHex }));
-        }
-        renderPalette();
+      // Do NOT mutate paletteColors — the slot keeps its original color so that
+      // if renderPalette() is ever called, the rebuilt button still anchors to
+      // the original hue and dataset.baseColor stays correct.
+      // Only update the button's visual so the swatch shows the chosen shade.
+      if (button) {
+        button.style.background = normHex;
+        button.dataset.color = normHex;
+        button.title = normHex.toUpperCase();
+        // dataset.baseColor intentionally NOT updated — locks the hue family
       }
       setColor(normHex);
       removeVariationPicker();
@@ -1026,6 +1052,9 @@ function createPaletteButton(entry) {
   const button = document.createElement('button');
   button.style.background = entry.color;
   button.dataset.color = entry.color;
+  // baseColor is the original hue of this slot — never updated by variation picks,
+  // so double-click always generates shades around the same root color.
+  button.dataset.baseColor = entry.color;
   button.title = `${entry.label} (${entry.color.toUpperCase()})`;
   if (entry.color.toLowerCase() === (color || '').toLowerCase()) {
     button.classList.add('selected');
@@ -1038,12 +1067,13 @@ function createPaletteButton(entry) {
 
   button.addEventListener('click', () => {
     if (_suppressNextClick) { _suppressNextClick = false; return; }
-    setColor(entry.color);
+    setColor(button.dataset.color);
   });
 
   button.addEventListener('dblclick', (e) => {
     e.preventDefault();
-    showVariationPicker(button, entry.color);
+    // Always open picker from the original base color, never from a previously picked shade
+    showVariationPicker(button, button.dataset.baseColor);
   });
 
   // Touch double-tap for variation picker on mobile
@@ -1059,7 +1089,7 @@ function createPaletteButton(entry) {
       _suppressNextClick = true;
       // Reset suppress after a short delay in case no click fires (touchend only)
       setTimeout(() => { _suppressNextClick = false; }, 600);
-      showVariationPicker(button, entry.color);
+      showVariationPicker(button, button.dataset.baseColor);
     }
   }, { passive: false });
 
@@ -1942,5 +1972,107 @@ viewport.addEventListener("touchend", (e) => {
      applyToolAtCell(coords.x, coords.y);
   }
 });
+
+// ─── LEADERBOARD ────────────────────────────────────────────────────────────
+// Fetches /api/leaderboard and renders results in the slide-in panel.
+// Auto-refreshes every 60 seconds. Resets at midnight UTC-4.
+(function initLeaderboard() {
+  const panel    = document.getElementById('lb-panel');
+  const toggle   = document.getElementById('lb-toggle');
+  const list     = document.getElementById('lb-list');
+  const dateEl   = document.getElementById('lb-date');
+  const arrowR   = document.getElementById('lb-arrow-right');
+  const arrowL   = document.getElementById('lb-arrow-left');
+
+  if (!panel || !toggle || !list) return;
+
+  let isOpen = false;
+
+  function closePanel() {
+    isOpen = false;
+    panel.classList.remove('lb-open');
+    arrowR.style.display = '';
+    arrowL.style.display = 'none';
+  }
+
+  // Toggle open/close on arrow click
+  toggle.addEventListener('click', () => {
+    isOpen = !isOpen;
+    panel.classList.toggle('lb-open', isOpen);
+    arrowR.style.display = isOpen ? 'none'  : '';
+    arrowL.style.display = isOpen ? ''      : 'none';
+    if (isOpen) fetchLeaderboard();
+  });
+
+  // Force-close when the user logs out (currentUser becomes null)
+  window.addEventListener('sp-state-change', (e) => {
+    if (e.detail && e.detail.currentUser === null) closePanel();
+  });
+
+  /** Format "YYYY-MM-DD" (UTC-4) for the date label */
+  function todayUTC4() {
+    const d = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /** Milliseconds until next midnight UTC-4 */
+  function msUntilMidnightUTC4() {
+    const now = new Date();
+    const utc4 = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+    const nextMidnight = new Date(utc4);
+    nextMidnight.setUTCHours(24, 0, 0, 0); // next UTC midnight = next UTC-4 midnight
+    return nextMidnight.getTime() - utc4.getTime();
+  }
+
+  /** Render the leaderboard rows */
+  function render(rows) {
+    dateEl.textContent = todayUTC4();
+    if (!rows || rows.length === 0) {
+      list.innerHTML = '<li class="lb-empty">No pixels placed yet today.</li>';
+      return;
+    }
+
+    const rankSymbols = ['🥇', '🥈', '🥉'];
+    const rankClasses = ['lb-rank--gold', 'lb-rank--silver', 'lb-rank--bronze'];
+
+    list.innerHTML = rows.map((row, i) => {
+      const rankContent = i < 3 ? rankSymbols[i] : `${i + 1}`;
+      const rankCls = i < 3 ? rankClasses[i] : '';
+      const isMe = currentUser && row.username === currentUser;
+      return `
+        <li class="${isMe ? 'lb-me' : ''}">
+          <span class="lb-rank ${rankCls}">${rankContent}</span>
+          <span class="lb-username" title="${row.username}">${row.username}</span>
+          <span class="lb-count">${row.count.toLocaleString()} px</span>
+        </li>`;
+    }).join('');
+  }
+
+  async function fetchLeaderboard() {
+    try {
+      const res = await fetch('/api/leaderboard');
+      if (!res.ok) throw new Error('Leaderboard fetch failed');
+      const data = await res.json();
+      render(data.leaderboard || []);
+    } catch {
+      list.innerHTML = '<li class="lb-loading">Unable to load…</li>';
+    }
+  }
+
+  // Auto-refresh every 60 s
+  setInterval(() => {
+    if (isOpen) fetchLeaderboard();
+  }, 60_000);
+
+  // Schedule a forced refresh at the next UTC-4 midnight to reset the display
+  function scheduleReset() {
+    const delay = msUntilMidnightUTC4();
+    setTimeout(() => {
+      if (isOpen) fetchLeaderboard();
+      scheduleReset(); // reschedule for the next day
+    }, delay);
+  }
+  scheduleReset();
+})();
 
 }); // end DOMContentLoaded

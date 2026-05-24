@@ -16,6 +16,14 @@ function initializeDatabase(db) {
       label TEXT NOT NULL,
       color TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS pixel_counts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL,
+      day TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(username, day)
+    );
   `);
 
   try {

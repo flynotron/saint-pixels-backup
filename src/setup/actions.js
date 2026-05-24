@@ -1,7 +1,17 @@
 const { PlacePixel } = require('../actions/PlacePixel.js');
+const { Leaderboard } = require('../actions/Leaderboard.js');
 
-function initializeActions(app) {
-  app.post('/api/pixel', PlacePixel.execute);  // fixed: added leading slash
+/**
+ * @param {import('express').Application} app
+ * @param {import('better-sqlite3').Database} db
+ */
+function initializeActions(app, db) {
+  // Inject db into actions that need it
+  PlacePixel.setDb(db);
+  Leaderboard.setDb(db);
+
+  app.post('/api/pixel',       PlacePixel.execute);
+  app.get('/api/leaderboard',  Leaderboard.execute);
 }
 
 module.exports = { initializeActions };
