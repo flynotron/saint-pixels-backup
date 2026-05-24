@@ -39,6 +39,10 @@ jobs:
           # Uses GitHub's absolute environment path variable so Docker mounts properly
           directory: ${{ github.workspace }}
           
+      - name: Fix SARIF Categories for GitHub
+        run: |
+          jq '.runs |= map(.automationDetails = {"id": (.tool.driver.name | ascii_downcase | gsub(" "; "-"))})' results.sarif > results_fixed.sarif
+          mv results_fixed.sarif results.sarif
       - name: Upload SARIF results file
         uses: github/codeql-action/upload-sarif@v4
         with:
