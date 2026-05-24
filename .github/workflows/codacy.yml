@@ -51,7 +51,7 @@ jobs:
 
           # IMPORTANT:
           # Disable all broken/problematic engines
-          tool: codacy-analysis-cli
+          tool: eslint
 
           args: >
             --disable-engine pmd
