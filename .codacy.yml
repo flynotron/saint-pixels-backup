@@ -1,0 +1,17 @@
+engines:
+  pmd:
+    enabled: false
+  cpd:
+    enabled: false
+
+exclude_paths:
+  - 'node_modules/**'
+  - 'dist/**'
+  - 'build/**'
+  - 'public/**'
+  - 'assets/**'
+  - '**/*.min.js'
+  - '**/*.min.css'
+  - '**/*.png'
+  - '**/*.ico'
+  - '**/*.jpg'
