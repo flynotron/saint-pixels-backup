@@ -151,6 +151,9 @@ body.auth-open .cooldown-bar {
   opacity: 0 !important;
   pointer-events: none !important;
 }
+body.auth-open #lb-panel {
+  display: none !important;
+}
 
 /* ── Topbar drag handle ──────────────────────────────────────── */
 .topbar-drag-handle {
@@ -175,9 +178,9 @@ header.flex { will-change: transform; }
 
 /* ── Variation picker popup ────────────────────────────────── */
 .variation-picker {
-  border: 1px solid rgba(255,255,255,0.14);
-  background: #11171f;
-  color: #111;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(47, 47, 48, 0.98);
+  color: #f8fafc;
 }
 
 .variation-picker > div { pointer-events: none; }
@@ -605,5 +608,197 @@ header.flex { will-change: transform; }
     width: calc(100% - 24px);
     padding: 20px 18px;
     border-radius: 20px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LEADERBOARD PANEL
+   Slides in from the left edge of the browser window.
+   .lb-panel           — the whole unit (toggle + body)
+   .lb-panel.lb-open   — expanded state
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Panel container ─────────────────────────────────────────── */
+.lb-panel {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 500;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* slide everything off-screen minus the toggle tab width */
+  --lb-width: 260px;
+  --lb-toggle-w: 28px;
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              left       0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* When the panel body is hidden we offset the container so only
+   the toggle button peeks out on the left edge */
+.lb-panel:not(.lb-open) {
+  left: calc(-1 * var(--lb-width));
+}
+
+/* ── Arrow toggle button ─────────────────────────────────────── */
+.lb-toggle {
+  flex-shrink: 0;
+  width: var(--lb-toggle-w);
+  height: 64px;
+  background: rgba(47, 47, 48, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  box-shadow: 3px 0 12px rgba(0, 0, 0, 0.35);
+}
+
+.lb-toggle:hover {
+  background: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.5);
+}
+
+/* ── Panel body ──────────────────────────────────────────────── */
+.lb-body {
+  width: var(--lb-width);
+  max-height: min(480px, 80vh);
+  background: rgba(31, 45, 58, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: none;
+  border-radius: 0 16px 16px 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px);
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.lb-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.lb-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.01em;
+}
+
+.lb-date {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Ranked list ─────────────────────────────────────────────── */
+.lb-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.lb-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  transition: background 0.12s;
+}
+
+.lb-list li:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* rank badge */
+.lb-rank {
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.lb-rank--gold   { color: #fbbf24; }
+.lb-rank--silver { color: #94a3b8; }
+.lb-rank--bronze { color: #cd7c3f; }
+
+.lb-username {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+/* highlight the current player's row */
+.lb-list li.lb-me .lb-username {
+  color: #38bdf8;
+}
+
+.lb-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.lb-loading {
+  color: #475569;
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+}
+
+.lb-empty {
+  color: #475569;
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+/* ── Reset note ──────────────────────────────────────────────── */
+.lb-reset-note {
+  margin: 0;
+  padding: 8px 16px 10px;
+  font-size: 0.7rem;
+  color: #334155;
+  text-align: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+}
+
+/* ── Mobile: anchor below topbar, smaller panel ─────────────── */
+@media (max-width: 720px) {
+  .lb-panel {
+    top: calc(var(--mob-top-total, 88px) + 12px);
+    transform: none;
+    --lb-width: 220px;
+    --lb-toggle-w: 24px;
+  }
+
+  .lb-toggle {
+    height: 52px;
   }
 }
