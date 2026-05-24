@@ -1,9 +1,12 @@
 name: Codacy Security Scan
+
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+
   pull_request:
-    branches: [ "main" ] 
+    branches: ["main"]
+
   schedule:
     - cron: '34 11 * * 3'
 
@@ -12,37 +15,65 @@ permissions:
 
 jobs:
   codacy-security-scan:
+    name: Codacy Security Scan
+    runs-on: ubuntu-latest
+
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     permissions:
       contents: read
       security-events: write
       actions: read
-    name: Codacy Security Scan
-    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
+      # Debug step to detect non-UTF8 files
+      - name: Find non-UTF8 files
+        run: |
+          find . -type f \
+            ! -path "./.git/*" \
+            ! -path "./node_modules/*" \
+            | while read file; do
+                iconv -f UTF-8 -t UTF-8 "$file" > /dev/null 2>&1 \
+                  || echo "Non-UTF8 file: $file"
+              done
+
       - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@d840f886c4bd4edc059706d09c6a1586111c540b
-        env:
-          # Directly passes native flags to the runner tool to disable pmd/cpd
-          CODACY_ANALYSIS_CLI_ARGUMENTS: "--disable-engine pmd --disable-engine cpd"
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+
           verbose: true
           output: results.sarif
           format: sarif
           gh-code-scanning-compat: true
+
+          # Prevent Codacy from failing the workflow due to issue count
           max-allowed-issues: 2147483647
-          # Uses GitHub's absolute environment path variable so Docker mounts properly
+
+          # Important for Docker mount paths
           directory: ${{ github.workspace }}
-          
+
+          # Disable problematic engines
+          args: "--disable-engine pmd --disable-engine cpd"
+
       - name: Fix SARIF Categories for GitHub
         run: |
-          jq '.runs |= map(.automationDetails = {"id": (.tool.driver.name | ascii_downcase | gsub(" "; "-"))})' results.sarif > results_fixed.sarif
+          jq '.runs |= map(
+            .automationDetails = {
+              "id": (
+                .tool.driver.name
+                | ascii_downcase
+                | gsub(" "; "-")
+              )
+            }
+          )' results.sarif > results_fixed.sarif
+
           mv results_fixed.sarif results.sarif
+
       - name: Upload SARIF results file
         uses: github/codeql-action/upload-sarif@v4
         with:
