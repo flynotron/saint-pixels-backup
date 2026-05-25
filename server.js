@@ -49,6 +49,7 @@ const { requireCaptcha } = require('./src/helpers/captcha.js');
 const { sendVerificationEmail } = require('./src/helpers/mailer.js');
 const { initializeActions } = require('./src/setup/actions.js');
 const { initializeDatabase } = require('./src/setup/database.js');
+const { initializeSSE, broadcastSSE } = require('./src/setup/sse.js');
 
 app.use(express.json({ limit: '10kb' }));
 
@@ -79,8 +80,7 @@ setCooldownDb(db);
 // NOTE: must be registered BEFORE initializeActions so /api/pixel is covered.
 
 const globalLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 200,
+  windowMs: 60 * 60 * 1000, // 1 hour  max: 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Please slow down.' },
@@ -95,18 +95,8 @@ const pixelLimiter = rateLimit({
   message: { error: 'Too many pixels placed. Slow down.' },
 });
 
-// ─── SSE Client Registry ──────────────────────────────────────────────────────
-// Keeps a Set of active SSE response objects so we can broadcast to all viewers.
-const sseClients = new Set();
-
-function broadcastSSE(data) {
-  const payload = `data: ${JSON.stringify(data)}\n\n`;
-  for (const client of sseClients) {
-    try { client.write(payload); } catch { sseClients.delete(client); }
-  }
-}
-
 initializeActions(app, db, pixelLimiter, broadcastSSE);
+initializeSSE(app, db);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -117,11 +107,11 @@ const authLimiter = rateLimit({
 });
 
 const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
+  windowMs: 10 * 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many registrations from this IP. Please try again later.' },
+  message: { error: 'Too many accounts created from this IP. You can register again in 10 minutes.' },
 });
 
 // ─── Register ─────────────────────────────────────────────────────────────────
@@ -158,9 +148,17 @@ app.post('/api/register', registerLimiter, requireCaptcha, async (req, res) => {
     db.prepare('INSERT INTO email_verifications (username, token, created_at, expires_at) VALUES (?, ?, ?, ?)')
       .run(username, verifyToken, now, now + 24 * 60 * 60 * 1000);
 
-    sendVerificationEmail(email, username, verifyToken).catch(err => {
-      console.error('[register] Failed to send verification email:', err.message);
-    });
+    // Check if a verification email was already sent for this account in the last 60s
+    // (guards against double-POST / rapid retry sending duplicate emails)
+    const recentSend = db.prepare(
+      'SELECT created_at FROM email_verifications WHERE username = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(username);
+    const tooSoon = recentSend && (Date.now() - recentSend.created_at) < 60_000;
+    if (!tooSoon) {
+      sendVerificationEmail(email, username, verifyToken).catch(err => {
+        console.error('[register] Failed to send verification email:', err.message);
+      });
+    }
 
     const token = createSession(username);
     return res.json({
@@ -242,6 +240,17 @@ const resendLimiter = rateLimit({
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
+  // Key by session username when available, fall back to IP
+  keyGenerator: (req) => {
+    const auth = req.headers.authorization || '';
+    const [, token] = auth.split(' ');
+    if (token) {
+      const row = db.prepare('SELECT username FROM sessions WHERE token = ? AND expires_at > ?')
+        .get(token, Date.now());
+      if (row) return `resend:${row.username}`;
+    }
+    return `resend:ip:${req.ip}`;
+  },
   message: { error: 'Too many resend requests. Please wait before trying again.' },
 });
 
@@ -313,28 +322,6 @@ app.get('/api/palette', paletteLimiter, (req, res) => {
   }
 });
 
-
-// ─── SSE stream ───────────────────────────────────────────────────────────────
-// Clients connect here and receive pixel events pushed by the server in real time.
-
-app.get('/api/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  // Send a heartbeat comment every 25s to keep the connection alive through proxies
-  const heartbeat = setInterval(() => {
-    try { res.write(': heartbeat\n\n'); } catch { /* ignore */ }
-  }, 25000);
-
-  sseClients.add(res);
-
-  req.on('close', () => {
-    clearInterval(heartbeat);
-    sseClients.delete(res);
-  });
-});
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).send('Not found'));
