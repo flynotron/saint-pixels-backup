@@ -420,6 +420,108 @@ app.get('/api/palette', paletteLimiter, (req, res) => {
 });
 
 
+// ─── Debug: auth diagnostics (dev/staging only) ───────────────────────────────
+//
+// GET  /api/debug/auth?username=alice
+//   → Shows the stored account row (hash prefix only) + active session count.
+//
+// POST /api/debug/auth  { "username": "alice", "password": "secret" }
+//   → Runs verifyPassword live and tells you exactly why it passed/failed.
+//
+// NEVER enable this in production — it is blocked by the NODE_ENV guard below.
+
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/api/debug/auth', (req, res) => {
+    const { username } = req.query;
+
+    // No username → list all accounts (redacted) so you can see what exists
+    if (!username) {
+      try {
+        const accounts = db.prepare(
+          'SELECT id, username, email, email_verified, ip, created_at, SUBSTR(password, 1, 29) AS hash_prefix FROM accounts ORDER BY id ASC'
+        ).all();
+        const sessions = db.prepare('SELECT username, COUNT(*) AS count FROM sessions WHERE expires_at > ? GROUP BY username').all(Date.now());
+        return res.json({
+          note: 'DEV MODE — never exposed in production',
+          accounts,           // password column is first-29-chars of bcrypt hash only
+          active_sessions: sessions,
+        });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
+    }
+
+    // Specific username → detailed info
+    try {
+      const row = db.prepare(
+        'SELECT id, username, email, email_verified, ip, created_at, password FROM accounts WHERE username = ?'
+      ).get(username);
+
+      if (!row) {
+        return res.json({ found: false, username });
+      }
+
+      const { password: hash, ...safeRow } = row;
+      return res.json({
+        found: true,
+        account: {
+          ...safeRow,
+          hash_prefix: hash.slice(0, 29),   // "$2b$12$<22-char salt>" — safe to expose
+          hash_length: hash.length,
+          hash_starts_with_2b: hash.startsWith('$2b$'),
+          bcrypt_rounds: parseInt(hash.split('$')[2], 10) || null,
+        },
+        sessions: db.prepare(
+          'SELECT token_prefix, created_at, expires_at FROM (SELECT SUBSTR(token,1,8) AS token_prefix, created_at, expires_at FROM sessions WHERE username = ? AND expires_at > ?) ORDER BY created_at DESC LIMIT 5'
+        ).all(username, Date.now()),
+        hint: 'POST /api/debug/auth with { username, password } to run a live bcrypt check',
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/debug/auth', async (req, res) => {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Provide { username, password } in the JSON body.' });
+    }
+
+    try {
+      const row = db.prepare('SELECT username, password, email_verified FROM accounts WHERE username = ?').get(username);
+
+      if (!row) {
+        return res.json({
+          result: 'FAIL',
+          reason: 'username_not_found',
+          message: `No account with username "${username}" exists in the database.`,
+        });
+      }
+
+      const { password: hash, ...safeRow } = row;
+      const match = await verifyPassword(password, hash);
+
+      return res.json({
+        result: match ? 'OK' : 'FAIL',
+        reason: match ? 'password_correct' : 'password_mismatch',
+        account: {
+          ...safeRow,
+          hash_prefix: hash.slice(0, 29),
+          hash_length: hash.length,
+          hash_starts_with_2b: hash.startsWith('$2b$'),
+          bcrypt_rounds: parseInt(hash.split('$')[2], 10) || null,
+        },
+        email_verified: !!row.email_verified,
+        message: match
+          ? '✅ Password matches — if login still fails, check the captcha or session layer.'
+          : '❌ Password does not match the stored hash. The account may have been registered with a different password, or the hash is corrupted.',
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message, stack: err.stack });
+    }
+  });
+}
+
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).send('Not found'));
 
