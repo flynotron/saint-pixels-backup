@@ -2432,12 +2432,14 @@ viewport.addEventListener("touchend", (e) => {
 
 // ── Password visibility toggle (auth form) ─────────────────────────────────
 const togglePasswordBtn = document.getElementById('togglePassword');
-const eyeIcon           = document.getElementById('eyeIcon');
-if (togglePasswordBtn && authPassword && eyeIcon) {
+const eyeIconOpen       = document.getElementById('eyeIconOpen');
+const eyeIconClosed     = document.getElementById('eyeIconClosed');
+if (togglePasswordBtn && authPassword && eyeIconOpen && eyeIconClosed) {
   togglePasswordBtn.addEventListener('click', () => {
     const isHidden = authPassword.type === 'password';
     authPassword.type = isHidden ? 'text' : 'password';
-    eyeIcon.src = isHidden ? '/closed-eye.svg' : '/open-eye.svg';
+    eyeIconOpen.style.display   = isHidden ? 'none'  : '';
+    eyeIconClosed.style.display = isHidden ? ''      : 'none';
   });
 }
 
@@ -2456,12 +2458,14 @@ const forgotPasswordRow = document.getElementById('forgotPasswordRow');
 
 // Toggle password eye on reset modal
 const toggleResetPasswordBtn = document.getElementById('toggleResetPassword');
-const resetEyeIcon           = document.getElementById('resetEyeIcon');
-if (toggleResetPasswordBtn && resetNewPassword && resetEyeIcon) {
+const resetEyeIconOpen       = document.getElementById('resetEyeIconOpen');
+const resetEyeIconClosed     = document.getElementById('resetEyeIconClosed');
+if (toggleResetPasswordBtn && resetNewPassword && resetEyeIconOpen && resetEyeIconClosed) {
   toggleResetPasswordBtn.addEventListener('click', () => {
     const isHidden = resetNewPassword.type === 'password';
     resetNewPassword.type = isHidden ? 'text' : 'password';
-    resetEyeIcon.src = isHidden ? '/closed-eye.svg' : '/open-eye.svg';
+    resetEyeIconOpen.style.display   = isHidden ? 'none' : '';
+    resetEyeIconClosed.style.display = isHidden ? ''     : 'none';
   });
 }
 

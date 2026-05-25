@@ -223,6 +223,9 @@ header.flex { will-change: transform; }
 
 /* Coords chip — hidden on desktop, shown on mobile */
 .mob-coords-chip { display: none !important; }
+/* Mobile contribute + live count — hidden on desktop */
+.mob-contribute-btn,
+.mob-live-count { display: none !important; }
 /* Toolbox spacer in palette — hidden on desktop */
 .palette-toolbox-spacer { display: none !important; }
 .spawn-container input[type="number"]::-webkit-inner-spin-button { display: none; }
@@ -342,6 +345,9 @@ header.flex { will-change: transform; }
 
   /* Show the coords chip on mobile */
   .mob-coords-chip { display: inline-flex !important; }
+  /* Show mobile-only contribute + live count */
+  .mob-contribute-btn { display: inline-flex !important; }
+  .mob-live-count { display: inline-flex !important; }
   /* Show toolbox spacer on mobile */
   .palette-toolbox-spacer { display: block !important; }
 
@@ -433,19 +439,26 @@ header.flex { will-change: transform; }
     touch-action: none;
   }
 
-  /* Cooldown bar */
+  /* Cooldown bar — fixed, truly centered via left:50%+translateX(-50%) */
   .cooldown-bar {
     position: fixed !important;
     bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 8px) !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: auto !important;
-    min-width: 150px !important;
+    /* Ensure it's centered relative to the full viewport, not a transformed parent */
+    left: 0 !important;
+    right: 0 !important;
+    transform: none !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: min(300px, calc(100vw - 24px)) !important;
+    min-width: unset !important;
     max-width: calc(100vw - 24px) !important;
     padding: 5px 12px !important;
     border-radius: 20px !important;
     z-index: 250 !important;
     pointer-events: none;
+    /* performance */
+    will-change: contents;
+    contain: layout style;
   }
   .cooldown-bar__label { font-size: 0.7rem !important; }
 
@@ -538,6 +551,7 @@ header.flex { will-change: transform; }
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     align-items: center;
     gap: 6px !important;
@@ -551,6 +565,8 @@ header.flex { will-change: transform; }
     z-index: 280 !important;
     box-shadow: none !important;
     border-top: 1px solid rgba(255,255,255,0.08) !important;
+    /* prevent palette from being clipped by any ancestor overflow */
+    contain: layout style !important;
   }
   .fullscreen-palette::-webkit-scrollbar { display: none; }
 
@@ -636,6 +652,100 @@ header.flex { will-change: transform; }
     width: calc(100% - 24px);
     padding: 20px 18px;
     border-radius: 20px;
+  }
+
+  /* ── Performance: reduce paint cost on mobile ── */
+  .viewport canvas {
+    will-change: auto; /* let browser decide; avoids compositing too many layers */
+  }
+  #overlay {
+    will-change: contents;
+  }
+  /* Avoid backdrop-filter blurs on low-power mobile paths */
+  header.flex,
+  .canvas-toolbar,
+  .footer-panel {
+    backdrop-filter: none !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LANDSCAPE MOBILE — narrow height, wide width
+   Recalculate heights so nothing overflows or breaks.
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 920px) and (orientation: landscape) and (max-height: 500px) {
+  :root {
+    --mob-topbar-h: 38px;
+    --mob-toolbar-h: 34px;
+    --mob-top-total: 72px;
+    --mob-palette-h: 48px;
+    --mob-spawn-h:   40px;
+    --mob-bottom-total: 88px;
+  }
+
+  html, body {
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    height: 100dvh;
+  }
+
+  header.flex {
+    height: var(--mob-topbar-h);
+    min-height: unset;
+  }
+
+  header.flex h1 {
+    font-size: 0.8rem;
+  }
+
+  .canvas-toolbar {
+    height: var(--mob-toolbar-h);
+    padding: 3px 8px;
+    gap: 5px;
+  }
+
+  section.flex-col {
+    top: var(--mob-top-total);
+    bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .fullscreen-palette {
+    height: var(--mob-palette-h) !important;
+    bottom: calc(var(--mob-spawn-h) + env(safe-area-inset-bottom, 0px)) !important;
+    padding: 4px 12px 4px 60px !important;
+    gap: 5px !important;
+  }
+
+  .fullscreen-palette button {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .footer-panel {
+    min-height: var(--mob-spawn-h) !important;
+    height: calc(var(--mob-spawn-h) + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .tool-list {
+    bottom: calc(var(--mob-spawn-h) + var(--mob-palette-h) + env(safe-area-inset-bottom, 0px)) !important;
+    width: 48px !important;
+    gap: 4px !important;
+    padding: 6px 4px !important;
+  }
+
+  .tool--secondary {
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  .cooldown-bar {
+    bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 4px) !important;
+  }
+
+  /* Leaderboard in landscape: use updated heights */
+  .lb-panel {
+    top: var(--mob-top-total, 72px);
+    bottom: calc(var(--mob-bottom-total, 88px) + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -1054,9 +1164,18 @@ header.flex { will-change: transform; }
 @media (max-width: 720px) {
   .lb-panel {
     top: var(--mob-top-total, 88px);
-    bottom: var(--mob-bottom-total, 106px);
+    /* stop above the palette + spawn bar + safe-area so it never covers them */
+    bottom: calc(var(--mob-bottom-total, 106px) + env(safe-area-inset-bottom, 0px));
     --lb-width: 220px;
     --lb-toggle-w: 24px;
+    /* ensure the panel body doesn't exceed its own height */
+    height: auto;
+  }
+
+  .lb-body {
+    /* let the panel body scroll internally rather than overflow */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .lb-toggle {
