@@ -5,6 +5,11 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
+    build: {
+      outDir: 'public',
+      emptyOutDir: true,
+    },
+    publicDir: false,
     plugins: [
       tailwindcss(),
       // Inject hCaptcha site key into index.html at build time so it never
