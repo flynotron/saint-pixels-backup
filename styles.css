@@ -37,7 +37,17 @@
 #grid    { z-index: 2; pointer-events: none; }
 #overlay { z-index: 3; pointer-events: none; will-change: contents; contain: strict; }
 
-/* ── Tool / button active states (toggled by JS) ───────────── */
+/* ── Cooldown bar — desktop centering fix ──────────────────── */
+.cooldown-bar {
+  /* Override Tailwind's left-1/2 which is relative to the canvas panel,
+     not the viewport. Use fixed positioning so it truly centers on screen. */
+  position: fixed !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  bottom: 1.5rem !important;
+  width: min(360px, calc(100% - 32px)) !important;
+  z-index: 4;
+}
 .toggle-btn.active,
 .tool.active {
   background: rgba(56,189,248,0.28) !important;
@@ -445,16 +455,16 @@ header.flex { will-change: transform; }
     justify-content: center !important;
   }
 
-  /* Tool list — attached to the left edge of the palette */
+  /* Tool list — fixed to left edge, above the palette strip, independent of aside */
   .tool-list {
     position: fixed !important;
     bottom: calc(var(--mob-spawn-h) + var(--mob-palette-h) + env(safe-area-inset-bottom, 0px)) !important;
     left: 0 !important;
     top: auto !important;
     transform: none !important;
-    height: 80 !important;
-    width: auto !important;
-    z-index: 260 !important;
+    height: auto !important;
+    width: 54px !important;
+    z-index: 285 !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 6px !important;
@@ -469,7 +479,8 @@ header.flex { will-change: transform; }
     align-items: center !important;
     justify-content: center !important;
     grid-template-columns: unset !important;
-    box-shadow: none !important;
+    box-shadow: 3px -3px 12px rgba(0,0,0,0.25) !important;
+    contain: layout !important;
   }
 
   /* Only hand hidden on mobile; eyedropper + none stay visible */
