@@ -2252,8 +2252,10 @@ viewport.addEventListener("touchend", (e) => {
 
       if (d.recentPixels && d.recentPixels.length > 0) {
         pmRecent.innerHTML = d.recentPixels.map(p => {
-          const color = p.color || '#888';
-          return `<div class="pm-pixel-dot" style="background:${color};" title="(${p.x},${p.y}) ${color}"></div>`;
+          const safeColor = normalizeHexColor(String(p.color || '#888'));
+          const safeX = parseInt(p.x, 10) || 0;
+          const safeY = parseInt(p.y, 10) || 0;
+          return `<div class="pm-pixel-dot" style="background:${safeColor};" title="(${safeX},${safeY}) ${safeColor}"></div>`;
         }).join('');
       } else {
         pmRecent.innerHTML = '<span style="color:#475569;font-size:0.82rem;font-style:italic;">No pixels placed yet.</span>';
@@ -2315,14 +2317,24 @@ viewport.addEventListener("touchend", (e) => {
     const rankSymbols = ['🥇', '🥈', '🥉'];
     const rankClasses = ['lb-rank--gold', 'lb-rank--silver', 'lb-rank--bronze'];
 
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     list.innerHTML = rows.map((row, i) => {
       const rankContent = i < 3 ? rankSymbols[i] : `${i + 1}`;
       const rankCls = i < 3 ? rankClasses[i] : '';
       const isMe = currentUser && row.username === currentUser;
+      const safeUsername = escHtml(row.username);
       return `
         <li class="${isMe ? 'lb-me' : ''}">
           <span class="lb-rank ${rankCls}">${rankContent}</span>
-          <span class="lb-username" data-username="${row.username}" title="View ${row.username}'s profile">${row.username}</span>
+          <span class="lb-username" data-username="${safeUsername}" title="View ${safeUsername}'s profile">${safeUsername}</span>
           <span class="lb-count">${Number(row.count).toLocaleString()} px</span>
         </li>`;
     }).join('');

@@ -27,7 +27,7 @@ const { sendVerificationEmail } = require('./src/helpers/mailer.js');
 const { initializeActions } = require('./src/setup/actions.js');
 const { initializeDatabase } = require('./src/setup/database.js');
 
-app.use(express.json());
+app.use(express.json({ limit: '10kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 initializeDatabase(db);
@@ -36,9 +36,8 @@ initializeDatabase(db);
 setSessionDb(db);
 setCooldownDb(db);
 
-initializeActions(app, db);
-
 // ─── Rate limiters ────────────────────────────────────────────────────────────
+// NOTE: must be registered BEFORE initializeActions so /api/pixel is covered.
 
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -48,6 +47,16 @@ const globalLimiter = rateLimit({
   message: { error: 'Too many requests. Please slow down.' },
 });
 app.use(globalLimiter);
+
+const pixelLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60, // max 60 pixel placements per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many pixels placed. Slow down.' },
+});
+
+initializeActions(app, db, pixelLimiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

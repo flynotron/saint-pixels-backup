@@ -46,16 +46,32 @@ class PlacePixel {
       }
     }
 
-    // Store the pixel in the pixels history table
+    // Validate and store the pixel
+    const { x, y, color } = req.body;
+    const px = parseInt(x, 10);
+    const py = parseInt(y, 10);
+    const BOARD_W = 1920;
+    const BOARD_H = 1080;
+
+    if (
+      !Number.isInteger(px) || !Number.isInteger(py) ||
+      px < 0 || px >= BOARD_W || py < 0 || py >= BOARD_H
+    ) {
+      return res.status(400).json({ error: 'Invalid pixel coordinates.' });
+    }
+
+    if (typeof color !== 'string' || !/^#?[0-9a-fA-F]{6}$/.test(color.trim())) {
+      return res.status(400).json({ error: 'Invalid color value.' });
+    }
+
+    const safeColor = '#' + color.replace(/[^0-9a-fA-F]/g, '').toLowerCase().slice(0, 6);
+
     if (_db) {
       try {
-        const { x, y, color } = req.body;
-        if (typeof x === 'number' && typeof y === 'number' && typeof color === 'string') {
-          _db.prepare(`
-            INSERT INTO pixels (username, x, y, color, placed_at)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(session.username, x, y, color.replace(/[^0-9a-fA-F#]/g, '').slice(0, 7), Date.now());
-        }
+        _db.prepare(`
+          INSERT INTO pixels (username, x, y, color, placed_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(session.username, px, py, safeColor, Date.now());
       } catch (err) {
         console.error('Failed to store pixel:', err);
       }
