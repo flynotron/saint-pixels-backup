@@ -63,7 +63,8 @@ class PlacePixel {
     }
 
     // Broadcast the pixel to all SSE-connected clients for real-time sync
-    _broadcast({ type: 'pixel', x: px, y: py, color: safeColor, user: session.username });
+    const safeColor = typeof req.body.color === 'string' ? req.body.color.replace(/[^0-9a-fA-F#]/g, '').slice(0, 7) : '';
+    _broadcast({ type: 'pixel', x: req.body.x, y: req.body.y, color: safeColor, user: session.username });
 
     return res.json({ success: true });
   }
