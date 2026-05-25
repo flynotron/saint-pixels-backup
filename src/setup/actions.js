@@ -4,10 +4,13 @@ const { Leaderboard } = require('../actions/Leaderboard.js');
 /**
  * @param {import('express').Application} app
  * @param {import('better-sqlite3').Database} db
+ * @param {Function} [pixelLimiter]
+ * @param {Function} [broadcastSSE]
  */
-function initializeActions(app, db, pixelLimiter) {
+function initializeActions(app, db, pixelLimiter, broadcastSSE) {
   // Inject db into actions that need it
   PlacePixel.setDb(db);
+  PlacePixel.setBroadcast(broadcastSSE || (() => {}));
   Leaderboard.setDb(db);
 
   const pixelMiddleware = pixelLimiter ? [pixelLimiter, PlacePixel.execute] : [PlacePixel.execute];

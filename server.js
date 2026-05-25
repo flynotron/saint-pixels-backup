@@ -56,7 +56,18 @@ const pixelLimiter = rateLimit({
   message: { error: 'Too many pixels placed. Slow down.' },
 });
 
-initializeActions(app, db, pixelLimiter);
+initializeActions(app, db, pixelLimiter, broadcastSSE);
+
+// ─── SSE Client Registry ──────────────────────────────────────────────────────
+// Keeps a Set of active SSE response objects so we can broadcast to all viewers.
+const sseClients = new Set();
+
+function broadcastSSE(data) {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch { sseClients.delete(client); }
+  }
+}
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -261,6 +272,29 @@ app.get('/api/palette', paletteLimiter, (req, res) => {
     console.error('Palette fetch error:', err);
     return res.status(500).json({ error: 'Could not load palette.' });
   }
+});
+
+
+// ─── SSE stream ───────────────────────────────────────────────────────────────
+// Clients connect here and receive pixel events pushed by the server in real time.
+
+app.get('/api/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Send a heartbeat comment every 25s to keep the connection alive through proxies
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch { /* ignore */ }
+  }, 25000);
+
+  sseClients.add(res);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+  });
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────

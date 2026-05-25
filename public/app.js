@@ -78,6 +78,30 @@ const CLIENT_TTL = 8000;
 const sessionRandom = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, '0')).join('');
 const sessionId = `${Date.now()}-${sessionRandom}`;
 
+// ── SSE real-time sync ──────────────────────────────────────────────────────
+// Connects to /api/stream and applies pixels placed by other users instantly.
+let _sseSource = null;
+
+function connectSSE() {
+  if (_sseSource) { _sseSource.close(); }
+  _sseSource = new EventSource('/api/stream');
+
+  _sseSource.onmessage = (e) => {
+    try {
+      const event = JSON.parse(e.data);
+      if (event.type === 'pixel' && event.user !== currentUser) {
+        applyRemotePixel(event);
+        redraw();
+      }
+    } catch { /* ignore malformed events */ }
+  };
+
+  _sseSource.onerror = () => {
+    // Auto-reconnect after 3 seconds on connection drop
+    setTimeout(connectSSE, 3000);
+  };
+}
+
 const bufferCanvas = document.createElement('canvas');
 bufferCanvas.width = CANVAS_WIDTH;
 bufferCanvas.height = CANVAS_HEIGHT;
@@ -1559,7 +1583,7 @@ toggleGridBtn.addEventListener('click', () => {
 // ensure UI reflects current grid state on load
 if (toggleGridBtn) toggleGridBtn.classList.toggle('active', gridEnabled);
 
-clearCanvasButton.addEventListener('click', clearCanvas);
+// Clear canvas button removed — users cannot wipe the shared board
 exportButton.addEventListener('click', exportPng);
 if (colorInput) colorInput.addEventListener('input', event => setColor(event.target.value));
 if (addColorButton) addColorButton.addEventListener('click', addColorToPalette);
@@ -1743,7 +1767,7 @@ document.addEventListener('keydown', event => {
     case '2': setTool('eraser'); break;
     case '3': setTool('eyedropper'); break;
     case 'g': gridEnabled = !gridEnabled; toggleGridBtn.classList.toggle('active', gridEnabled); redraw(); break;
-    case 'c': clearCanvas(); break;
+    // 'c' key for clear removed
     case 'Enter':
       event.preventDefault();
       placeFromKeyboard();
@@ -1807,6 +1831,7 @@ window.addEventListener('load', () => {
   registerClientHeartbeat();
   setInterval(registerClientHeartbeat, CLIENT_HEARTBEAT_MS);
   replayHistory();
+  connectSSE();
   updateCooldownLabel();
 });
 

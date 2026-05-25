@@ -3,6 +3,7 @@ const { getSession } = require('../helpers/session.js');
 
 // Injected by initializeActions
 let _db = null;
+let _broadcast = () => {};
 
 /**
  * Returns the current day string in UTC-4 (e.g. "2025-05-23")
@@ -46,36 +47,23 @@ class PlacePixel {
       }
     }
 
-    // Validate and store the pixel
-    const { x, y, color } = req.body;
-    const px = parseInt(x, 10);
-    const py = parseInt(y, 10);
-    const BOARD_W = 1920;
-    const BOARD_H = 1080;
-
-    if (
-      !Number.isInteger(px) || !Number.isInteger(py) ||
-      px < 0 || px >= BOARD_W || py < 0 || py >= BOARD_H
-    ) {
-      return res.status(400).json({ error: 'Invalid pixel coordinates.' });
-    }
-
-    if (typeof color !== 'string' || !/^#?[0-9a-fA-F]{6}$/.test(color.trim())) {
-      return res.status(400).json({ error: 'Invalid color value.' });
-    }
-
-    const safeColor = '#' + color.replace(/[^0-9a-fA-F]/g, '').toLowerCase().slice(0, 6);
-
+    // Store the pixel in the pixels history table
     if (_db) {
       try {
-        _db.prepare(`
-          INSERT INTO pixels (username, x, y, color, placed_at)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(session.username, px, py, safeColor, Date.now());
+        const { x, y, color } = req.body;
+        if (typeof x === 'number' && typeof y === 'number' && typeof color === 'string') {
+          _db.prepare(`
+            INSERT INTO pixels (username, x, y, color, placed_at)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(session.username, x, y, color.replace(/[^0-9a-fA-F#]/g, '').slice(0, 7), Date.now());
+        }
       } catch (err) {
         console.error('Failed to store pixel:', err);
       }
     }
+
+    // Broadcast the pixel to all SSE-connected clients for real-time sync
+    _broadcast({ type: 'pixel', x: px, y: py, color: safeColor, user: session.username });
 
     return res.json({ success: true });
   }
@@ -86,6 +74,14 @@ class PlacePixel {
    */
   static setDb(db) {
     _db = db;
+  }
+
+  /**
+   * Inject the SSE broadcast function (called from initializeActions)
+   * @param {Function} fn
+   */
+  static setBroadcast(fn) {
+    _broadcast = fn;
   }
 }
 
