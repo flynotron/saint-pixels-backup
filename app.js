@@ -93,6 +93,10 @@ function connectSSE() {
         applyRemotePixel(event);
         redraw();
       }
+      // Server broadcasts the true connected-client count on every connect/disconnect
+      if (event.type === 'clients' && typeof event.count === 'number') {
+        updateLiveCount(event.count);
+      }
     } catch { /* ignore malformed events */ }
   };
 
@@ -1304,6 +1308,10 @@ function syncUI() {
   updateCooldownLabel();
 }
 
+// True once the SSE stream has delivered its first 'clients' count event.
+// While false, the localStorage heartbeat is used as a rough same-browser fallback.
+let _sseCountReceived = false;
+
 function registerClientHeartbeat() {
   const clients = safeParse(localStorage.getItem(CLIENTS_KEY), {});
   const now = Date.now();
@@ -1314,7 +1322,10 @@ function registerClientHeartbeat() {
     }
   });
   localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
-  updateLiveCount(Object.keys(clients).length);
+  // Only use the local count as a placeholder until the server tells us the real number
+  if (!_sseCountReceived) {
+    updateLiveCount(Object.keys(clients).length);
+  }
 }
 
 function removeClientHeartbeat() {
@@ -1324,6 +1335,7 @@ function removeClientHeartbeat() {
 }
 
 function updateLiveCount(count) {
+  _sseCountReceived = true;
   dispatchStateChange({ liveCount: count });
 }
 
@@ -1796,8 +1808,10 @@ window.addEventListener('storage', event => {
   if (!event.key) return;
 
   if (event.key === CLIENTS_KEY) {
-    const clients = safeParse(event.newValue, {});
-    updateLiveCount(Object.keys(clients).length);
+    if (!_sseCountReceived) {
+      const clients = safeParse(event.newValue, {});
+      updateLiveCount(Object.keys(clients).length);
+    }
   }
 
   if (event.key === EVENT_KEY) {

@@ -1,45 +1,71 @@
 /**
  * Email helper — sends transactional emails via SMTP (nodemailer).
  * Configure SMTP credentials in .env (see .env.example).
+ *
+ * Required env vars:
+ *   SMTP_HOST     e.g. smtp.gmail.com / smtp.mailgun.org
+ *   SMTP_USER     SMTP login username (usually your email address)
+ *   SMTP_PASS     SMTP password or app-password
+ *
+ * Optional env vars:
+ *   SMTP_PORT     defaults to 587
+ *   SMTP_SECURE   'true' forces TLS (port 465 style); 'false' uses STARTTLS.
+ *                 When omitted the port decides: 465 → true, anything else → false.
+ *   EMAIL_FROM    e.g. "Saint-Pixels <no-reply@yourdomain.com>"
+ *   APP_BASE_URL  e.g. https://yourdomain.com  (used in verification links)
  */
 
 const nodemailer = require('nodemailer');
 
-let _transporter = null;
-
+/**
+ * Build a fresh transporter from the current env vars.
+ * Never caches null — always retries so a mis-ordered env load doesn't
+ * permanently break mail for the process lifetime.
+ *
+ * @returns {import('nodemailer').Transporter | null}
+ */
 function getTransporter() {
-  if (_transporter) return _transporter;
-
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SECURE } = process.env;
 
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.warn('[mailer] SMTP not configured — emails will be logged to console only.');
     return null;
   }
 
-  _transporter = nodemailer.createTransport({
+  const port   = parseInt(SMTP_PORT || '587', 10);
+  // SMTP_SECURE=true → implicit TLS (port 465).
+  // SMTP_SECURE=false → STARTTLS (port 587 / 2587).
+  // Unset → infer from port number.
+  const secure = SMTP_SECURE !== undefined
+    ? SMTP_SECURE === 'true'
+    : port === 465;
+
+  return nodemailer.createTransport({
     host: SMTP_HOST,
-    port: parseInt(SMTP_PORT || '587', 10),
-    secure: parseInt(SMTP_PORT || '587', 10) === 465,
+    port,
+    secure,
+    // requireTLS ensures STARTTLS is negotiated on port 587 even if the
+    // server advertises it as optional — prevents accidental plaintext fallback.
+    requireTLS: !secure,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
   });
-
-  return _transporter;
 }
 
 /**
  * Send an email.
+ * Throws on SMTP error so callers can surface the failure to the user.
  * Falls back to console.log if SMTP is not configured (local dev).
  *
  * @param {{ to: string, subject: string, html: string, text?: string }} opts
  */
 async function sendMail({ to, subject, html, text }) {
-  const from = process.env.EMAIL_FROM || 'Saint-Pixels <no-reply@example.com>';
+  const from        = process.env.EMAIL_FROM || 'Saint-Pixels <no-reply@example.com>';
   const transporter = getTransporter();
 
   if (!transporter) {
     // Dev fallback — print to terminal
+    console.warn('[mailer] SMTP not configured — email NOT sent, printing to console.');
     console.log(`\n[mailer] ─── EMAIL (dev mode) ────────────────────`);
+    console.log(`  From:    ${from}`);
     console.log(`  To:      ${to}`);
     console.log(`  Subject: ${subject}`);
     console.log(`  Body:\n${text || html}`);
@@ -47,7 +73,13 @@ async function sendMail({ to, subject, html, text }) {
     return;
   }
 
-  await transporter.sendMail({ from, to, subject, html, text });
+  try {
+    const info = await transporter.sendMail({ from, to, subject, html, text });
+    console.log(`[mailer] Sent "${subject}" → ${to}  (messageId: ${info.messageId})`);
+  } catch (err) {
+    console.error(`[mailer] Failed to send "${subject}" → ${to}:`, err.message);
+    throw err; // Rethrow so the calling route can return a 500/error to the client
+  }
 }
 
 /**
