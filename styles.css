@@ -444,7 +444,7 @@ header.flex { will-change: transform; }
     position: fixed !important;
     bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 8px) !important;
     /* Use left:50% + translateX(-50%) for true viewport centering */
-    left: 50% !important;
+    left: auto !important;
     right: auto !important;
     transform: translateX(-50%) !important;
     width: min(300px, calc(100vw - 24px)) !important;
@@ -488,7 +488,7 @@ header.flex { will-change: transform; }
     transform: none !important;
     height: auto !important;
     width: 54px !important;
-    z-index: 285 !important;
+    z-index: 280 !important;
     display: flex !important;
     flex-direction: column !important;
     gap: 6px !important;
@@ -564,7 +564,7 @@ header.flex { will-change: transform; }
     /* exact same colour as tool-list and spawn bar so they read as one bar */
     background: rgba(58, 58, 59, 0.98) !important;
     backdrop-filter: none !important;
-    z-index: 280 !important;
+    z-index: 285 !important;
     box-shadow: none !important;
     border-top: 1px solid rgba(255,255,255,0.08) !important;
     /* prevent palette from being clipped by any ancestor overflow */
