@@ -152,7 +152,7 @@ app.post('/api/register', registerLimiter, requireCaptcha, async (req, res) => {
     // Check if a verification email was already sent for this account in the last 60s
     // (guards against double-POST / rapid retry sending duplicate emails)
     const recentSend = db.prepare(
-      'SELECT created_at FROM email_verifications WHERE username = ? ORDER BY created_at DESC LIMIT 1'
+      'SELECT created_at FROM email_verifications WHERE username = ? ORDER BY created_at DESC LIMIT 1 OFFSET 1'
     ).get(username);
     const tooSoon = recentSend && (Date.now() - recentSend.created_at) < 60_000;
     if (!tooSoon) {
@@ -186,7 +186,7 @@ app.post('/api/login', authLimiter, requireCaptcha, async (req, res) => {
       .get(username);
 
     // Always run verifyPassword even on no-match to prevent timing attacks
-    const dummyHash = '$2b$12$invalidhashpaddingtomatchbcryptlength000000000000000000000';
+    const dummyHash = '$2b$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012345678';
     const valid = row
       ? await verifyPassword(password, row.password)
       : await verifyPassword(password, dummyHash).then(() => false);
