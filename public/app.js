@@ -1628,18 +1628,20 @@ function setAuthMode(mode) {
 
   // Tab active styles
   if (authTabLogin) {
-    authTabLogin.classList.toggle('bg-white/10',      !isRegister);
-    authTabLogin.classList.toggle('border-white/20',  !isRegister);
-    authTabLogin.classList.toggle('text-white',       !isRegister);
-    authTabLogin.classList.toggle('text-slate-400',    isRegister);
-    authTabLogin.classList.toggle('hover:text-white',  isRegister);
+    authTabLogin.classList.toggle('bg-white/10',        !isRegister);
+    authTabLogin.classList.toggle('border-white/20',    !isRegister);
+    authTabLogin.classList.toggle('border-transparent',  isRegister);
+    authTabLogin.classList.toggle('text-white',         !isRegister);
+    authTabLogin.classList.toggle('text-slate-400',      isRegister);
+    authTabLogin.classList.toggle('hover:text-white',    isRegister);
   }
   if (authTabRegister) {
-    authTabRegister.classList.toggle('bg-white/10',     isRegister);
-    authTabRegister.classList.toggle('border-white/20', isRegister);
-    authTabRegister.classList.toggle('text-white',      isRegister);
-    authTabRegister.classList.toggle('text-slate-400',  !isRegister);
-    authTabRegister.classList.toggle('hover:text-white',!isRegister);
+    authTabRegister.classList.toggle('bg-white/10',        isRegister);
+    authTabRegister.classList.toggle('border-white/20',    isRegister);
+    authTabRegister.classList.toggle('border-transparent', !isRegister);
+    authTabRegister.classList.toggle('text-white',         isRegister);
+    authTabRegister.classList.toggle('text-slate-400',    !isRegister);
+    authTabRegister.classList.toggle('hover:text-white',  !isRegister);
   }
 }
 

@@ -51,6 +51,21 @@ const { initializeActions } = require('./src/setup/actions.js');
 const { initializeDatabase } = require('./src/setup/database.js');
 
 app.use(express.json({ limit: '10kb' }));
+
+// Serve index.html with hCaptcha sitekey injected from env at request time
+const fs = require('fs');
+const indexPath = path.join(__dirname, 'public', 'index.html');
+app.get('/', (req, res) => {
+  try {
+    let html = fs.readFileSync(indexPath, 'utf8');
+    html = html.replace('__VITE_HCAPTCHA_SITEKEY__', process.env.HCAPTCHA_SITEKEY || '');
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    console.error('Failed to serve index.html:', err);
+    res.status(500).send('Server error.');
+  }
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 initializeDatabase(db);
