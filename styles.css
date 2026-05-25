@@ -825,7 +825,7 @@ header.flex { will-change: transform; }
     flex-direction: column !important;
     gap: 4px !important;
     padding: 6px 4px !important;
-    background: rgba(58, 58, 59, 0.98) !important;
+    background: rgba(58, 58, 59, 1) !important;
     backdrop-filter: none !important;
     border-top: 1px solid rgba(255,255,255,0.08) !important;
     border-left: none !important;
@@ -854,7 +854,7 @@ header.flex { will-change: transform; }
   /* Cooldown bar — centered above bottom bars */
   .cooldown-bar {
     position: fixed !important;
-    top: 60px !important;
+    top: auto !important;
     bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 4px) !important;
     left: 75% !important;
     right: auto !important;
