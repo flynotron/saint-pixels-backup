@@ -448,19 +448,19 @@ header.flex { will-change: transform; }
     touch-action: none;
   }
 
-  /* ── FIX: Centered Cooldown Bar — offset from tool-list (54px) ── */
+  /* ── Cooldown Bar: centered in space right of tool-list ── */
   .cooldown-bar {
     position: fixed !important;
-    bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 13px) !important;
+    bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 10px) !important;
     top: auto !important;
-    left: calc(54px + 10px) !important;
-    right: 10px !important;
+    /* Center within the canvas area (right of 54px tool-list) */
+    left: calc(54px + (100vw - 54px) / 2 - min(160px, (100vw - 54px) / 2 - 8px)) !important;
+    right: auto !important;
     transform: none !important;
-    width: auto !important;
-    max-width: 360px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    padding: 6px 14px !important;
+    width: min(320px, calc(100vw - 54px - 16px)) !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 5px 12px !important;
     border-radius: 20px !important;
     z-index: 295 !important;
     pointer-events: none;
@@ -822,18 +822,17 @@ header.flex { will-change: transform; }
     flex-shrink: 0 !important;
   }
 
-  /* FIX: Landscape Cooldown Bar — right of tool-list (48px), centered in remaining space */
+  /* FIX: Landscape Cooldown Bar — centered in space right of 48px tool-list */
   .cooldown-bar {
     position: fixed !important;
     top: auto !important;
     bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 4px) !important;
-    left: calc(48px + 12px) !important;
-    right: 12px !important;
+    left: calc(48px + (100vw - 48px) / 2 - min(150px, (100vw - 48px) / 2 - 8px)) !important;
+    right: auto !important;
     transform: none !important;
-    width: auto !important;
-    max-width: 360px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
+    width: min(300px, calc(100vw - 48px - 16px)) !important;
+    max-width: none !important;
+    margin: 0 !important;
     padding: 5px 12px !important;
     border-radius: 20px !important;
     z-index: 295 !important;
