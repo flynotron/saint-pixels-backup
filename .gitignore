@@ -8,9 +8,6 @@ database.sqlite-wal
 *.sqlite
 *.db
 
-# ── Anticheat ─────────────────────────────────────────────────────────────────
-src/helpers/AntiCheat.js
-
 # ── Environment / secrets — NEVER commit these ────────────────────────────────
 .env
 .env.*
