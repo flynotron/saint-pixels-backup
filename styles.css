@@ -351,14 +351,32 @@ header.flex { will-change: transform; }
   [role="group"] > div:nth-child(2) { display: none !important; }
   #logoutButton { display: none !important; }
 
+  /* Mob buttons + drag handle group: keep inline, no wrap */
+  .topbar-center-group {
+    align-self: center !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
   /* Show the coords chip on mobile */
   .mob-coords-chip { display: inline-flex !important; }
   /* Show mobile-only contribute + donate + live count */
   .mob-contribute-btn { display: inline-flex !important; }
   .mob-donate-btn { display: inline-flex !important; }
   .mob-live-count { display: inline-flex !important; }
+  .mob-contribute-btn,
+  .mob-donate-btn,
+  .mob-live-count {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
   /* Show toolbox spacer on mobile */
   .palette-toolbox-spacer { display: block !important; }
+
+  .topbar-center-group .topbar-drag-handle {
+    align-self: center !important;
+    padding: 4px 6px !important;
+  }
 
   /* Color picker — fixed circle at topbar right */
   .color-picker {
@@ -417,6 +435,7 @@ header.flex { will-change: transform; }
     flex-direction: column;
     gap: 0;
     z-index: 1;
+    box-shadow: none !important;
   }
 
   .viewport-wrapper {
@@ -448,24 +467,26 @@ header.flex { will-change: transform; }
     touch-action: none;
   }
 
-  /* ── Cooldown Bar: centered in space right of tool-list ── */
+  /* ── Cooldown Bar: centered in canvas area right of 54px tool-list ── */
   .cooldown-bar {
     position: fixed !important;
     bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 10px) !important;
     top: auto !important;
-    /* Center within the canvas area (right of 54px tool-list) */
-    left: calc(54px + (100vw - 54px) / 2 - min(160px, (100vw - 54px) / 2 - 8px)) !important;
+    /* Midpoint of canvas area = 54px + (100vw - 54px)/2, then offset left by half bar width */
+    left: calc(27px + 50vw) !important;
     right: auto !important;
-    transform: none !important;
-    width: min(320px, calc(100vw - 54px - 16px)) !important;
+    transform: translateX(-50%) !important;
+    width: min(300px, calc(100vw - 70px)) !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 5px 12px !important;
+    padding: 5px 14px !important;
     border-radius: 20px !important;
     z-index: 295 !important;
     pointer-events: none;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
     will-change: contents;
-    contain: layout style;
   }
   .cooldown-bar__label {
     font-size: 0.8rem !important;
@@ -513,7 +534,7 @@ header.flex { will-change: transform; }
     border-radius: 0 14px 0 0 !important;
     align-items: center !important;
     justify-content: center !important;
-    box-shadow: 3px -3px 12px rgba(0,0,0,0.25) !important;
+    box-shadow: none !important;
   }
 
   /* Only hand hidden on mobile; eyedropper + none stay visible */
@@ -609,6 +630,7 @@ header.flex { will-change: transform; }
     background: rgba(58, 58, 59, 1);
     border-top: 1px solid rgba(255,255,255,0.07);
     z-index: 290;
+    box-shadow: none !important;
   }
   .footer-panel::-webkit-scrollbar { display: none; }
 
@@ -733,6 +755,7 @@ header.flex { will-change: transform; }
     flex-direction: column;
     gap: 0;
     z-index: 1;
+    box-shadow: none !important;
   }
 
   .fullscreen-palette {
@@ -805,7 +828,7 @@ header.flex { will-change: transform; }
     border-right: 1px solid rgba(255,255,255,0.08) !important;
     border-bottom: 1px solid rgba(255,255,255,0.08) !important;
     border-radius: 0 14px 14px 0 !important;
-    box-shadow: 3px 0 12px rgba(0,0,0,0.25) !important;
+    box-shadow: none !important;
   }
   .tool--secondary {
     width: 34px !important;
@@ -822,21 +845,24 @@ header.flex { will-change: transform; }
     flex-shrink: 0 !important;
   }
 
-  /* FIX: Landscape Cooldown Bar — centered in space right of 48px tool-list */
+  /* FIX: Landscape Cooldown Bar — centered in canvas area right of 48px tool-list */
   .cooldown-bar {
     position: fixed !important;
     top: auto !important;
     bottom: calc(var(--mob-bottom-total) + env(safe-area-inset-bottom, 0px) + 4px) !important;
-    left: calc(48px + (100vw - 48px) / 2 - min(150px, (100vw - 48px) / 2 - 8px)) !important;
+    left: calc(24px + 50vw) !important;
     right: auto !important;
-    transform: none !important;
-    width: min(300px, calc(100vw - 48px - 16px)) !important;
+    transform: translateX(-50%) !important;
+    width: min(280px, calc(100vw - 64px)) !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 5px 12px !important;
+    padding: 4px 12px !important;
     border-radius: 20px !important;
     z-index: 295 !important;
     pointer-events: none;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 
   .lb-panel {
