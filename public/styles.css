@@ -125,7 +125,7 @@
     list-style: none;
   }
   img, svg, video, canvas, audio, iframe, embed, object {
-    display: block;
+    display: inline-block;
     vertical-align: middle;
   }
   img, video {
