@@ -69,7 +69,6 @@ const CUSTOM_PALETTE_KEY = 'sp_customPalette';
 const TOKEN_KEY = 'sp_token';
 const EVENT_KEY = 'sp_last_event';
 const PIXEL_HISTORY_KEY = 'sp_pixel_history';
-const CLIENTS_KEY = 'sp_clients';
 const COOLDOWN_MS = 5000;
 /** Max zoom as UI scale (1 = 100%, 50 = 5000%) */
 const MAX_ZOOM_SCALE = 50;
@@ -79,10 +78,6 @@ const ARROW_KEY_REPEAT_MS = 110;
 const MOUSE_CURSOR_ARMOR_PX = 36;
 /** Grid corner dots — screen pixels per dot (was 1×1). */
 const GRID_DOT_SCREEN_PX = 3;
-const CLIENT_HEARTBEAT_MS = 2000;
-const CLIENT_TTL = 8000;
-const sessionRandom = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, '0')).join('');
-const sessionId = `${Date.now()}-${sessionRandom}`;
 
 // ── SSE real-time sync ──────────────────────────────────────────────────────
 // Connects to /api/stream and applies pixels placed by other users instantly.
@@ -1388,24 +1383,6 @@ function syncUI() {
   updateCooldownLabel();
 }
 
-function registerClientHeartbeat() {
-  const clients = safeParse(localStorage.getItem(CLIENTS_KEY), {});
-  const now = Date.now();
-  clients[sessionId] = now;
-  Object.keys(clients).forEach(key => {
-    if (now - clients[key] > CLIENT_TTL) {
-      delete clients[key];
-    }
-  });
-  localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
-  updateLiveCount(Object.keys(clients).length);
-}
-
-function removeClientHeartbeat() {
-  const clients = safeParse(localStorage.getItem(CLIENTS_KEY), {});
-  delete clients[sessionId];
-  localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
-}
 
 function updateLiveCount(count) {
   dispatchStateChange({ liveCount: count });
@@ -1868,11 +1845,6 @@ window.addEventListener('keyup', event => {
 window.addEventListener('storage', event => {
   if (!event.key) return;
 
-  if (event.key === CLIENTS_KEY) {
-    const clients = safeParse(event.newValue, {});
-    updateLiveCount(Object.keys(clients).length);
-  }
-
   if (event.key === EVENT_KEY) {
     const remoteEvent = safeParse(event.newValue, null);
     if (remoteEvent) {
@@ -1890,7 +1862,7 @@ window.addEventListener('storage', event => {
 });
 
 window.addEventListener('beforeunload', () => {
-  removeClientHeartbeat();
+  // nothing to clean up for live count — SSE disconnect is handled server-side
 });
 
 /**
@@ -1921,8 +1893,6 @@ window.addEventListener('load', () => {
   }
   
   // 3. Start game loops
-  registerClientHeartbeat();
-  setInterval(registerClientHeartbeat, CLIENT_HEARTBEAT_MS);
   replayHistory();
   connectSSE();
   updateCooldownLabel();
