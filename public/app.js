@@ -1894,12 +1894,13 @@ window.addEventListener('beforeunload', () => {
 });
 
 /**
- * Returns true when running on a local dev origin that should bypass auth and
- * hCaptcha.  Covers http://localhost:3000 and http://192.168.1.136:3000.
+ * Returns true when running on a genuine localhost origin (loopback only).
+ * LAN IPs (e.g. 192.168.x.x) are NOT treated as local dev — they may be
+ * accessed by other users and must go through the full auth + captcha flow.
  */
 function isLocalDev() {
-  const { hostname, port } = window.location;
-  return port === '3000' && (hostname === 'localhost' || hostname === '192.168.1.136');
+  const { hostname } = window.location;
+  return hostname === 'localhost' || hostname === '127.0.0.1';
 }
 
 window.addEventListener('load', () => {

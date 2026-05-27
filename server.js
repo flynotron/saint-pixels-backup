@@ -411,8 +411,7 @@ app.use((req, res) => res.status(404).send('Not found'));
 const desiredPort = process.env.PORT ? Number(process.env.PORT) : 3000;
 // Binding to '0.0.0.0' allows connections from both localhost and your local Wi-Fi IP
 const server = app.listen(desiredPort, '0.0.0.0', () => {
-  console.log(`Saint Pixels server running locally:    http://localhost:${desiredPort}`);
-  console.log(`Saint Pixels server running on Network:  http://192.168.1.136:${desiredPort}`);
+  console.log(`Saint Pixels server running on http://localhost:${desiredPort}`);
 });
 
 server.on('error', (err) => {
