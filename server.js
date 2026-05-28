@@ -250,7 +250,9 @@ initializeChat(app, db, broadcastSSE, chatLimiter);
 // ── Register ──────────────────────────────────────────────────────────────────
 app.post('/api/register', registerLimiter, requireCaptcha, async (req, res) => {
   const { username, password, email } = req.body || {};
-  const ip = req.ip || safeIp(req) || 'unknown';
+  // Clamp to 45 chars (max IPv6 length) before storing — prevents an oversized
+  // X-Forwarded-For value (possible with trust proxy enabled) bloating the DB.
+  const ip = (req.ip || safeIp(req) || 'unknown').slice(0, 45);
 
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password are required.' });
@@ -264,10 +266,12 @@ app.post('/api/register', registerLimiter, requireCaptcha, async (req, res) => {
     return res.status(400).json({ error: 'A valid email address is required.' });
 
   try {
-    if (db.prepare('SELECT id FROM accounts WHERE username = ?').get(username))
+    // Use the SAME error message for both collisions — distinct messages would
+    // let unauthenticated callers silently enumerate whether an email is registered.
+    const usernameTaken = db.prepare('SELECT id FROM accounts WHERE username = ?').get(username);
+    const emailTaken    = db.prepare('SELECT id FROM accounts WHERE email = ?').get(email.toLowerCase());
+    if (usernameTaken || emailTaken)
       return res.status(409).json({ error: 'Username already taken.' });
-    if (db.prepare('SELECT id FROM accounts WHERE email = ?').get(email.toLowerCase()))
-      return res.status(409).json({ error: 'An account with this email already exists.' });
 
     const hashed = await hashPassword(password);
     db.prepare('INSERT INTO accounts (username, password, ip, created_at, email, email_verified) VALUES (?, ?, ?, ?, ?, 0)')
