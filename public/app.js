@@ -2324,8 +2324,14 @@ viewport.addEventListener("touchend", (e) => {
      // on Android) and in CSS pixels on others (Safari/iOS).  Dividing by
      // devicePixelRatio normalises it to CSS pixels in both cases.  When DPR
      // is 1 (desktop) this is a no-op.
+     //
+     // When the browser is pinch-zoomed OUT (vvScale < 1), clientX/Y are in
+     // layout pixels but radiusY (after /dpr) is still in visual CSS pixels.
+     // We must divide by vvScale to bring it into the same layout-pixel space
+     // as clientY so the offset doesn't overshoot at non-100% browser zoom.
      const dpr = window.devicePixelRatio || 1;
-     const radiusY = (touch.radiusY || 0) / dpr;
+     const vvScale = (window.visualViewport && window.visualViewport.scale) || 1;
+     const radiusY = (touch.radiusY || 0) / dpr / vvScale;
      const coords = getCanvasCoords(touch.clientX, touch.clientY + radiusY);
      applyToolAtCell(coords.x, coords.y);
   }
