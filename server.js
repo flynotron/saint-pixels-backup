@@ -266,8 +266,6 @@ app.post('/api/register', registerLimiter, requireCaptcha, async (req, res) => {
     return res.status(400).json({ error: 'A valid email address is required.' });
 
   try {
-    // Use the SAME error message for both collisions — distinct messages would
-    // let unauthenticated callers silently enumerate whether an email is registered.
     const usernameTaken = db.prepare('SELECT id FROM accounts WHERE username = ?').get(username);
     const emailTaken    = db.prepare('SELECT id FROM accounts WHERE email = ?').get(email.toLowerCase());
     if (usernameTaken || emailTaken)
