@@ -54,7 +54,7 @@ const { hashPassword, verifyPassword } = require('./src/helpers/password.js');
 const { requireCaptcha }         = require('./src/helpers/captcha.js');
 const { sendVerificationEmail }  = require('./src/helpers/mailer.js');
 const { initializeActions }      = require('./src/setup/actions.js');
-const { initializeDatabase }     = require('./src/setup/database.js');
+const { initializeDatabase, runMaintenance } = require('./src/setup/database.js');
 const { initializeSSE, broadcastSSE, setDb: setSseDb } = require('./src/setup/sse.js');
 const { initializeChat }         = require('./src/setup/chat.js');
 const { localBypassMiddleware }  = require('./src/helpers/localBypass.js'); // <-- Added
@@ -87,6 +87,23 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── DB init & helpers ─────────────────────────────────────────────────────────
 initializeDatabase(db);
+
+// ── Scheduled maintenance — runs once on startup then every 6 hours ──────────
+// Deletes expired sessions, used/expired tokens, and pixel_counts older than
+// 366 days. Keeps the DB lean without touching any live data.
+function scheduleMaintenance() {
+  try {
+    const deleted = runMaintenance(db);
+    const total = Object.values(deleted).reduce((a, b) => a + b, 0);
+    if (total > 0) {
+      console.log('[maintenance] Cleaned up rows:', deleted);
+    }
+  } catch (err) {
+    console.error('[maintenance] Error during maintenance:', err);
+  }
+  setTimeout(scheduleMaintenance, 6 * 60 * 60 * 1000);
+}
+scheduleMaintenance();
 
 if (!process.env.APP_BASE_URL) {
   console.warn('[config] WARNING: APP_BASE_URL is not set. Email links will point to http://localhost:3000 which will NOT work in production.');

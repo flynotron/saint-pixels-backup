@@ -22,7 +22,8 @@ function initializeDatabase(db) {
       used INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE INDEX IF NOT EXISTS idx_email_verifications_token ON email_verifications(token);
+    CREATE INDEX IF NOT EXISTS idx_email_verifications_token    ON email_verifications(token);
+    CREATE INDEX IF NOT EXISTS idx_email_verifications_expires  ON email_verifications(expires_at);
 
     CREATE TABLE IF NOT EXISTS palette (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,16 +39,18 @@ function initializeDatabase(db) {
       UNIQUE(username, day)
     );
 
+    -- One row per board cell — UPSERT keeps only the latest state.
+    -- Eliminates the unbounded append-log that was the #1 storage killer.
     CREATE TABLE IF NOT EXISTS pixels (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL,
-      x INTEGER NOT NULL,
-      y INTEGER NOT NULL,
-      color TEXT NOT NULL,
-      placed_at INTEGER NOT NULL
+      x        INTEGER NOT NULL,
+      y        INTEGER NOT NULL,
+      color    TEXT NOT NULL,
+      placed_at INTEGER NOT NULL,
+      PRIMARY KEY (x, y)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_pixels_username ON pixels(username);
+    CREATE INDEX IF NOT EXISTS idx_pixels_username  ON pixels(username);
     CREATE INDEX IF NOT EXISTS idx_pixels_placed_at ON pixels(placed_at);
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -57,7 +60,7 @@ function initializeDatabase(db) {
       expires_at INTEGER NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username);
+    CREATE INDEX IF NOT EXISTS idx_sessions_username   ON sessions(username);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
     CREATE TABLE IF NOT EXISTS cooldowns (
@@ -74,7 +77,8 @@ function initializeDatabase(db) {
       used INTEGER NOT NULL DEFAULT 0
     );
 
-    CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_token   ON password_resets(token);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets(expires_at);
   `);
 
   // ── Column migrations (SQLite doesn't support IF NOT EXISTS on ALTER TABLE) ──
@@ -88,6 +92,46 @@ function initializeDatabase(db) {
     }
   } catch (err) {
     console.error('Migration error (accounts):', err);
+  }
+
+  // ── pixels table migration: old schema had id PK + no UNIQUE(x,y) ────────────
+  // If the old append-log table exists, compact it in-place:
+  //   1. Keep only the most-recent row per (x,y).
+  //   2. Drop the old id-based primary key index.
+  // This runs once and is idempotent — safe to leave in.
+  try {
+    const pixelCols = db.pragma('table_info(pixels)').map(c => c.name);
+    if (pixelCols.includes('id')) {
+      console.log('[db] Migrating pixels table from append-log to upsert model…');
+      db.exec(`
+        -- Keep only the latest row per cell (max id = most recent insert)
+        DELETE FROM pixels
+        WHERE id NOT IN (
+          SELECT MAX(id) FROM pixels GROUP BY x, y
+        );
+
+        -- Rebuild as a proper keyed table without the autoincrement id
+        CREATE TABLE IF NOT EXISTS pixels_new (
+          username  TEXT    NOT NULL,
+          x         INTEGER NOT NULL,
+          y         INTEGER NOT NULL,
+          color     TEXT    NOT NULL,
+          placed_at INTEGER NOT NULL,
+          PRIMARY KEY (x, y)
+        );
+        INSERT OR REPLACE INTO pixels_new (username, x, y, color, placed_at)
+          SELECT username, x, y, color, placed_at FROM pixels;
+        DROP TABLE pixels;
+        ALTER TABLE pixels_new RENAME TO pixels;
+        CREATE INDEX IF NOT EXISTS idx_pixels_username  ON pixels(username);
+        CREATE INDEX IF NOT EXISTS idx_pixels_placed_at ON pixels(placed_at);
+
+        VACUUM;
+      `);
+      console.log('[db] pixels table migration complete.');
+    }
+  } catch (err) {
+    console.error('Migration error (pixels):', err);
   }
 
   // ── Default palette ───────────────────────────────────────────────────────────
@@ -119,4 +163,40 @@ function initializeDatabase(db) {
   }
 }
 
-module.exports = { initializeDatabase };
+/**
+ * Periodic maintenance — deletes genuinely expired/used rows that accumulate
+ * silently.  Safe to call at any time; runs inside a single transaction.
+ *
+ * Cleans up:
+ *   • expired sessions          (expires_at < now)
+ *   • used/expired email tokens (used OR expires_at < now)
+ *   • used/expired pw resets    (used OR expires_at < now)
+ *   • old pixel_counts rows     (day < 366 days ago — keeps a full year for
+ *                                 leaderboard history, deletes the rest)
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @returns {{ sessions: number, emailVerifications: number, passwordResets: number, pixelCounts: number }}
+ */
+function runMaintenance(db) {
+  const now = Date.now();
+  // Keep pixel_counts for the last 366 days (full year + 1 day buffer)
+  const cutoffDay = new Date(now - 366 * 24 * 60 * 60 * 1000)
+    .toISOString().slice(0, 10);
+
+  const results = db.transaction(() => {
+    const s  = db.prepare('DELETE FROM sessions           WHERE expires_at < ?').run(now);
+    const ev = db.prepare('DELETE FROM email_verifications WHERE used = 1 OR expires_at < ?').run(now);
+    const pr = db.prepare('DELETE FROM password_resets     WHERE used = 1 OR expires_at < ?').run(now);
+    const pc = db.prepare('DELETE FROM pixel_counts        WHERE day < ?').run(cutoffDay);
+    return {
+      sessions:           s.changes,
+      emailVerifications: ev.changes,
+      passwordResets:     pr.changes,
+      pixelCounts:        pc.changes,
+    };
+  })();
+
+  return results;
+}
+
+module.exports = { initializeDatabase, runMaintenance };

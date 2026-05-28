@@ -97,15 +97,23 @@ class Leaderboard {
         'SELECT count FROM pixel_counts WHERE username = ? AND day = ?'
       ).get(username, day);
 
-      // Global rank (all time)
-      const rankRows = _db.prepare(`
-        SELECT username, SUM(count) AS total
-        FROM pixel_counts
-        GROUP BY username
-        ORDER BY total DESC
-      `).all();
-      const rankIndex = rankRows.findIndex(r => r.username === username);
-      const rank = rankIndex === -1 ? null : rankIndex + 1;
+      // Global rank (all time) — use a counting subquery instead of fetching
+      // all rows into JS, which would be a full-table scan proportional to
+      // every user ever registered.
+      const rankRow = _db.prepare(`
+        SELECT COUNT(*) + 1 AS rank
+        FROM (
+          SELECT username, SUM(count) AS total
+          FROM pixel_counts
+          GROUP BY username
+          HAVING total > (
+            SELECT COALESCE(SUM(count), 0)
+            FROM pixel_counts
+            WHERE username = ?
+          )
+        )
+      `).get(username);
+      const rank = rankRow ? rankRow.rank : null;
 
       // Last 20 pixels placed
       const recentPixels = _db.prepare(`

@@ -48,15 +48,18 @@ class PlacePixel {
       }
     }
 
-    // Store the pixel in the pixels history table
+    // Upsert the pixel — replaces the existing row for this (x,y) if one exists.
+    // This keeps the pixels table bounded to at most BOARD_WIDTH × BOARD_HEIGHT rows
+    // (1 920 × 1 080 = ~2 M) rather than growing without limit as an append log.
     if (_db) {
       try {
         const { x, y, color } = req.body;
         if (typeof x === 'number' && typeof y === 'number' && typeof color === 'string') {
+          const safeColor = color.replace(/[^0-9a-fA-F#]/g, '').slice(0, 7);
           _db.prepare(`
-            INSERT INTO pixels (username, x, y, color, placed_at)
+            INSERT OR REPLACE INTO pixels (username, x, y, color, placed_at)
             VALUES (?, ?, ?, ?, ?)
-          `).run(session.username, x, y, color.replace(/[^0-9a-fA-F#]/g, '').slice(0, 7), Date.now());
+          `).run(session.username, x, y, safeColor, Date.now());
         }
       } catch (err) {
         console.error('Failed to store pixel:', err);
@@ -70,6 +73,7 @@ class PlacePixel {
 
     return res.json({ success: true });
   }
+
   /**
    * POST /api/erase — erase a pixel (stored as color='erase' sentinel)
    * Uses the same cooldown as a regular pixel placement.
@@ -87,19 +91,17 @@ class PlacePixel {
     // Record this erase against the IP for anti-cheat enforcement
     recordIp(req.ip || req.socket?.remoteAddress || 'unknown', session.username);
 
-    // Store erase as a pixel with sentinel color 'erase'
-    // When replayed on init, this will clear the pixel correctly
     if (_db) {
       try {
         const { x, y } = req.body;
         if (typeof x === 'number' && typeof y === 'number') {
-          // 1. Log the erase action in the raw pixel event stream
+          // Upsert the erase sentinel — same bounded-table guarantee as pixel placement.
           _db.prepare(`
-            INSERT INTO pixels (username, x, y, color, placed_at)
+            INSERT OR REPLACE INTO pixels (username, x, y, color, placed_at)
             VALUES (?, ?, ?, 'erase', ?)
           `).run(session.username, x, y, Date.now());
 
-          // 2. Increment this player's pixel count for today to update the leaderboard
+          // Increment this player's pixel count for today to update the leaderboard
           _db.prepare(`
             INSERT INTO pixel_counts (username, day, count)
             VALUES (?, ?, 1)
@@ -117,6 +119,7 @@ class PlacePixel {
 
     return res.json({ success: true });
   }
+
   /**
    * Inject the database instance (called from initializeActions)
    * @param {Database} db
